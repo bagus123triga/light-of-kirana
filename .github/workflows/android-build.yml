@@ -1,0 +1,164 @@
+name: Android Build (Manual Only)
+
+# Intentionally no push, pull_request, schedule, or release trigger.
+# A workflow run still requires explicit user authorization.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_build:
+        description: "Type BUILD to confirm this manual build"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: light-of-kirana-android-build
+  cancel-in-progress: false
+
+jobs:
+  android-debug:
+    if: ${{ github.event.inputs.confirm_build == 'BUILD' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v5
+        with:
+          ref: main
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # Godot 4.4.1: versi project saat ini.
+      - name: Setup Godot
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.4.1
+          use-dotnet: false
+          include-templates: true
+
+      - name: Verify preinstalled Android SDK
+        run: |
+          set -euo pipefail
+          test -n "${ANDROID_HOME:-}"
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          sdkmanager --version
+          test -d "$ANDROID_HOME/cmdline-tools/latest"
+
+      - name: Restore Android SDK cache
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            ${{ env.ANDROID_HOME }}/platform-tools
+            ${{ env.ANDROID_HOME }}/platforms
+            ${{ env.ANDROID_HOME }}/build-tools
+            ${{ env.ANDROID_HOME }}/cmake
+            ${{ env.ANDROID_HOME }}/ndk
+          key: ${{ runner.os }}-android-sdk-api35-bt35.0.1-ndk28b-cmake3.10.2-v3
+
+      - name: Install Android export dependencies
+        run: |
+          set -euo pipefail
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+          yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses >/dev/null || true
+          sdkmanager --sdk_root="$ANDROID_HOME" \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.1" \
+            "ndk;28.1.13356709" \
+            "cmake;3.10.2.4988404"
+
+      - name: Configure Godot Android SDK paths
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.config/godot" "$HOME/.android"
+          cat > "$HOME/.config/godot/editor_settings-4.4.tres" <<EOF
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          export/android/debug_keystore = "$HOME/.android/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EOF
+          keytool -genkeypair -noprompt -keystore "$HOME/.android/debug.keystore" \
+            -storepass android -alias androiddebugkey -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+          python3 - <<'PY'
+          from pathlib import Path
+          preset = Path("export_presets.cfg")
+          content = preset.read_text()
+          marker = "[preset.0.options]"
+          if content.count(marker) != 1:
+              raise SystemExit("Expected exactly one Android export preset options section")
+          values = {
+              "keystore/debug": str(Path.home() / ".android/debug.keystore"),
+              "keystore/debug_user": "androiddebugkey",
+              "keystore/debug_password": "android",
+          }
+          lines = content.splitlines()
+          section_index = lines.index(marker)
+          section_end = next(
+              (i for i in range(section_index + 1, len(lines)) if lines[i].startswith("[")),
+              len(lines),
+          )
+          options = lines[section_index + 1:section_end]
+          for key, value in values.items():
+              line = f'{key}="{value}"'
+              existing = next((i for i, item in enumerate(options) if item.startswith(key + "=")), None)
+              if existing is None:
+                  options.append(line)
+              else:
+                  options[existing] = line
+          lines[section_index + 1:section_end] = options
+          preset.write_text("\n".join(lines) + "\n")
+          PY
+
+      - name: Validate project and import
+        run: |
+          set -euo pipefail
+          test -f project.godot
+          test -f export_presets.cfg
+          godot --version
+          godot --headless --editor --path . --import --quit
+
+      - name: Export debug APK
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          godot --headless --path . --install-android-build-template --export-debug "Android" build/light-of-kirana-debug.apk
+          test -s build/light-of-kirana-debug.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: light-of-kirana-android-debug
+          path: build/light-of-kirana-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Save lightweight Android SDK cache
+        if: success()
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ${{ env.ANDROID_HOME }}/platform-tools
+            ${{ env.ANDROID_HOME }}/platforms
+            ${{ env.ANDROID_HOME }}/build-tools
+            ${{ env.ANDROID_HOME }}/cmake
+            ${{ env.ANDROID_HOME }}/ndk
+          key: ${{ runner.os }}-android-sdk-api35-bt35.0.1-ndk28b-cmake3.10.2-v3
