@@ -4,7 +4,9 @@ Light of Kirana is an open-world adventure set in a vast kingdom where the light
 
 Starter game Android, Godot 4.4, GL Compatibility.
 
-Scene utama: `scenes/main.tscn` — dunia starter minimal (langit, matahari, tanah luas, tiga kotak rintangan, kamera, HUD). Belum ada pemain, belum ada musuh, belum ada animasi — gameplay ditambah satu perilaku dalam satu waktu, dari referensi yang sudah disetujui Bagus.
+Scene utama: `scenes/main.tscn` — dunia v1: tanah berbukit dari heightmap + noise (dicat rumput / tanah gundul / batu di lereng), rumput MultiMesh + shader angin, danau + air stylized, 24 pohon bisa ditebang (3 tebasan → roboh → kayu → tunggul → tumbuh lagi 60 dtk), bebatuan, 1 matahari + langit + kabut, suara prosedural (angin, air, langkah per permukaan, tebasan, burung). Pemain kapsul sementara (model Kirana menyusul): WASD/panah + joystick kiri, Shift/LARI lari, Space/LOMPAT lompat, F/TEBAS tebas pohon di depan, drag kanan putar kamera.
+
+Tes dunia headless: `godot --headless --path . -- --world-test` (harus `WORLD_TEST PASS`).
 
 ## Jalankan di editor
 

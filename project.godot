@@ -11,6 +11,18 @@ config/icon="res://assets/icon.svg"
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.4", "GL Compatibility")
 
+[input_devices]
+
+pointing/emulate_touch_from_mouse=false
+# emulate_mouse_from_touch DIMATIKAN (bukan default true): emulasi
+# mouse dari sentuhan itu SATU pointer saja — sentuhan pertama yang
+# jadi mouse, sentuhan berikutnya tidak menghasilkan event mouse,
+# jadi tombol/kamera mati kalau analog disentuh duluan (bug multi-touch
+# hero-game 2026-11-08). Semua kontrol menangani InputEventScreenTouch
+# langsung (joystick, tombol via gui_input, kamera via _unhandled_input);
+# Button tetap merespons mouse asli di desktop. JANGAN nyalakan lagi
+# tanpa mengembalikan handler sentuhan native-nya.
+
 [display]
 
 window/size/viewport_width=1280

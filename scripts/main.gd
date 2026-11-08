@@ -1,91 +1,86 @@
 extends Node3D
 
-# LIGHT OF KIRANA — starter scene.
-# Builds the whole starter world in code: sky, sun, ground, a few
-# obstacles, a camera, and a HUD label. No player yet, no animation
-# files — gameplay is added one behaviour at a time, from a proven
-# reference approved by Bagus (see Agent.md).
+# LIGHT OF KIRANA — main: rakit dunia + pemain + suara.
+# Jalankan tes dunia headless: godot --headless --path . -- --world-test
 
-const WORLD_SIZE := 32.0
+const WorldScript := preload("res://scripts/world.gd")
+const PlayerScript := preload("res://scripts/player_controller.gd")
+const AmbienceScript := preload("res://scripts/ambience.gd")
+
+var _world: Node3D
+var _test_mode := false
+var _test_frames := 0
 
 
 func _ready() -> void:
-	_create_environment()
-	_create_ground()
-	_create_obstacles()
-	_create_camera()
-	_create_hud()
-
-
-func _create_environment() -> void:
-	var world_environment := WorldEnvironment.new()
-	var environment := Environment.new()
-	environment.background_mode = Environment.BG_SKY
-	environment.sky = Sky.new()
-	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	environment.ambient_light_color = Color(0.72, 0.80, 0.92)
-	environment.ambient_light_energy = 0.7
-	world_environment.environment = environment
-	add_child(world_environment)
-	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-48.0, -32.0, 0.0)
-	sun.light_energy = 1.15
-	sun.shadow_enabled = true
-	add_child(sun)
-
-
-func _create_ground() -> void:
-	var ground := StaticBody3D.new()
-	ground.name = "Ground"
-	add_child(ground)
-	var mesh_instance := MeshInstance3D.new()
-	var mesh := PlaneMesh.new()
-	mesh.size = Vector2(WORLD_SIZE, WORLD_SIZE)
-	mesh_instance.mesh = mesh
-	var material := StandardMaterial3D.new()
-	material.albedo_color = Color(0.24, 0.42, 0.25)
-	material.roughness = 1.0
-	mesh_instance.material_override = material
-	ground.add_child(mesh_instance)
-	var collision := CollisionShape3D.new()
-	var shape := BoxShape3D.new()
-	shape.size = Vector3(WORLD_SIZE, 0.2, WORLD_SIZE)
-	collision.shape = shape
-	collision.position.y = -0.1
-	ground.add_child(collision)
-
-
-func _create_obstacles() -> void:
-	for pos in [Vector3(4.0, 0.5, -4.0), Vector3(-5.0, 0.5, -2.0), Vector3(0.0, 0.5, -8.0)]:
-		var body := StaticBody3D.new()
-		body.position = pos
-		add_child(body)
-		var mesh_instance := MeshInstance3D.new()
-		var mesh := BoxMesh.new()
-		mesh.size = Vector3.ONE
-		mesh_instance.mesh = mesh
-		var material := StandardMaterial3D.new()
-		material.albedo_color = Color(0.6, 0.45, 0.3)
-		mesh_instance.material_override = material
-		body.add_child(mesh_instance)
-		var collision := CollisionShape3D.new()
-		var shape := BoxShape3D.new()
-		shape.size = Vector3.ONE
-		collision.shape = shape
-		body.add_child(collision)
-
-
-func _create_camera() -> void:
-	var camera := Camera3D.new()
-	camera.position = Vector3(0.0, 4.0, 9.0)
-	add_child(camera)
-	camera.look_at(Vector3(0.0, 0.5, 0.0), Vector3.UP)
-
-
-func _create_hud() -> void:
+	_test_mode = "--world-test" in OS.get_cmdline_user_args()
+	var ambience := Node.new()
+	ambience.set_script(AmbienceScript)
+	add_child(ambience)
+	_world = Node3D.new()
+	_world.set_script(WorldScript)
+	add_child(_world)
+	ambience.set_water_position(Vector3(14.0, 0.0, 12.0))
+	var player := CharacterBody3D.new()
+	player.set_script(PlayerScript)
+	player.position = Vector3(0.0, 1.0, 6.0)
+	player.world = _world
+	player.ambience = ambience
+	add_child(player)
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	var label := Label.new()
-	label.text = "LIGHT OF KIRANA — starter"
+	label.text = "LIGHT OF KIRANA — dunia v1 | WASD gerak, Space lompat, F tebas pohon, drag kanan kamera"
 	label.position = Vector2(16, 16)
 	layer.add_child(label)
+
+
+func _process(_delta: float) -> void:
+	if not _test_mode:
+		return
+	_test_frames += 1
+	if _test_frames == 60:
+		_run_world_test()
+
+
+func _run_world_test() -> void:
+	var failures := []
+	if _world == null:
+		failures.append("world null")
+	else:
+		if _world.trees.size() < 10:
+			failures.append("pohon kurang: %d" % _world.trees.size())
+		var grass := _world.get_node_or_null("Grass")
+		if grass == null or grass.multimesh.instance_count < 1000:
+			failures.append("rumput kurang/tidak ada")
+		if _world.get_node_or_null("Water") == null:
+			failures.append("air tidak ada")
+		if _world.get_node_or_null("Terrain") == null:
+			failures.append("tanah tidak ada")
+		var h: float = _world.get_height(0.0, 6.0)
+		if absf(h) > 0.6:
+			failures.append("spawn tidak rata: h=%f" % h)
+		if _world.get_ground_type(0.0, 6.0) < 0 or _world.get_ground_type(0.0, 6.0) > 2:
+			failures.append("jenis tanah invalid")
+		# Tebang satu pohon sampai roboh.
+		var tree = _world.trees[0]
+		tree.chop(Vector3(0.0, 1.0, 6.0))
+		tree.chop(Vector3(0.0, 1.0, 6.0))
+		tree.chop(Vector3(0.0, 1.0, 6.0))
+		if not tree.fallen:
+			failures.append("pohon tidak roboh setelah 3 tebasan")
+		# Pemain harus sudah mendarat di tanah (validasi tabrakan heightmap).
+		var player := get_tree().get_first_node_in_group("player")
+		if player:
+			var ground_h: float = _world.get_height(player.global_position.x, player.global_position.z)
+			if absf(player.global_position.y - ground_h) > 0.6:
+				failures.append("pemain tidak mendarat: y=%f tanah=%f" % [player.global_position.y, ground_h])
+	var ambience := get_tree().get_first_node_in_group("ambience")
+	if ambience == null:
+		failures.append("ambience null")
+	if failures.is_empty():
+		print("WORLD_TEST PASS")
+		get_tree().quit(0)
+	else:
+		print("WORLD_TEST FAIL: " + ", ".join(failures))
+		get_tree().quit(1)
