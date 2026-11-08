@@ -1,10 +1,11 @@
 extends Node3D
 
-# LIGHT OF KIRANA — main: rakit dunia + pemain + suara.
+# LIGHT OF KIRANA — main: rakit dunia + kamera terbang + suara.
+# Mode kamera saja, tanpa pemain (minta Bagus 2026-11-09).
 # Jalankan tes dunia headless: godot --headless --path . -- --world-test
 
 const WorldScript := preload("res://scripts/world.gd")
-const PlayerScript := preload("res://scripts/player_controller.gd")
+const FlyCameraScript := preload("res://scripts/fly_camera.gd")
 const AmbienceScript := preload("res://scripts/ambience.gd")
 
 var _world: Node3D
@@ -21,16 +22,14 @@ func _ready() -> void:
 	_world.set_script(WorldScript)
 	add_child(_world)
 	ambience.set_water_position(Vector3(14.0, 0.0, 12.0))
-	var player := CharacterBody3D.new()
-	player.set_script(PlayerScript)
-	player.position = Vector3(0.0, 1.0, 6.0)
-	player.world = _world
-	player.ambience = ambience
-	add_child(player)
+	var cam := Camera3D.new()
+	cam.set_script(FlyCameraScript)
+	cam.world = _world
+	add_child(cam)
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	var label := Label.new()
-	label.text = "LIGHT OF KIRANA — dunia v1 | WASD gerak, Space lompat, F tebas pohon, V/TERBANG mode terbang (joystick gerak, NAIK/TURUN, drag kanan lihat-lihat)"
+	label.text = "LIGHT OF KIRANA — mode kamera | Joystick/WASD gerak, NAIK/TURUN, CEPAT, drag kanan lihat-lihat"
 	label.position = Vector2(16, 16)
 	layer.add_child(label)
 
@@ -62,31 +61,34 @@ func _run_world_test() -> void:
 			failures.append("spawn tidak rata: h=%f" % h)
 		if _world.get_ground_type(0.0, 6.0) < 0 or _world.get_ground_type(0.0, 6.0) > 2:
 			failures.append("jenis tanah invalid")
-		# Tebang satu pohon sampai roboh.
+		# Sebaran warna tanah: batu jangan mendominasi bukit (dugaan
+		# "atas putih" — batu abu-abu di mana-mana), rumput harus dominan.
+		var rng := RandomNumberGenerator.new()
+		rng.seed = 7
+		var counts := [0, 0, 0]
+		for i in 400:
+			var x := rng.randf_range(-30.0, 30.0)
+			var z := rng.randf_range(-30.0, 30.0)
+			counts[_world.get_ground_type(x, z)] += 1
+		print("GROUND: rumput=%d tanah=%d batu=%d" % counts)
+		if float(counts[2]) / 400.0 > 0.25:
+			failures.append("batu kebanyakan: %d/400" % counts[2])
+		if float(counts[0]) / 400.0 < 0.4:
+			failures.append("rumput kesedikit: %d/400" % counts[0])
+		# Tebang satu pohon sampai roboh (logika pohon tetap hidup, walau
+		# tanpa pemain yang menebang).
 		var tree = _world.trees[0]
-		tree.chop(Vector3(0.0, 1.0, 6.0))
-		tree.chop(Vector3(0.0, 1.0, 6.0))
-		tree.chop(Vector3(0.0, 1.0, 6.0))
+		tree.chop(Vector3(0.0, 9.0, 20.0))
+		tree.chop(Vector3(0.0, 9.0, 20.0))
+		tree.chop(Vector3(0.0, 9.0, 20.0))
 		if not tree.fallen:
 			failures.append("pohon tidak roboh setelah 3 tebasan")
-		# Mode terbang: nyala, kamera terbang jadi aktif, lalu balik lagi.
-		var player := get_tree().get_first_node_in_group("player")
-		if player == null:
-			failures.append("pemain null")
-		else:
-			player.set_fly_mode(true)
-			if not player.fly_mode:
-				failures.append("mode terbang tidak nyala")
-			if player._fly_cam == null or not player._fly_cam.current:
-				failures.append("kamera terbang tidak aktif")
-			player.set_fly_mode(false)
-			if player.fly_mode:
-				failures.append("mode terbang tidak mati")
-		# Pemain harus sudah mendarat di tanah (validasi tabrakan heightmap).
-		if player:
-			var ground_h: float = _world.get_height(player.global_position.x, player.global_position.z)
-			if absf(player.global_position.y - ground_h) > 0.6:
-				failures.append("pemain tidak mendarat: y=%f tanah=%f" % [player.global_position.y, ground_h])
+		# Kamera terbang: ada, aktif, dan bisa gerak.
+		var cam := get_tree().get_first_node_in_group("fly_camera")
+		if cam == null:
+			failures.append("kamera terbang null")
+		elif not cam.current:
+			failures.append("kamera terbang tidak aktif")
 	var ambience := get_tree().get_first_node_in_group("ambience")
 	if ambience == null:
 		failures.append("ambience null")

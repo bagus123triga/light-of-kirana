@@ -45,14 +45,20 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	# Satu nilai angin untuk semuanya: goyangan rumput + volume suara angin.
+	# Satu nilai angin untuk suara angin (goyangan rumput diatur shader
+	# gameidea sendiri dari tekstur noise + TIME).
 	var t := Time.get_ticks_msec() / 1000.0
 	wind_strength = 0.35 + 0.25 * sin(t * 0.13) + 0.12 * sin(t * 0.71 + 1.3)
 	wind_strength = clampf(wind_strength, 0.1, 0.7)
-	if grass_material:
-		grass_material.set_shader_parameter("wind_strength", wind_strength)
 	if _ambience and _ambience.has_method("set_wind"):
 		_ambience.set_wind(wind_strength)
+
+
+func set_interaction_position(p: Vector3) -> void:
+	# Kamera (mode kamera saja) mendorong rumput saat lewat — interaksi
+	# player_position dari shader gameidea.
+	if grass_material:
+		grass_material.set_shader_parameter("player_position", p)
 
 
 # --- Tinggi & jenis tanah (satu rumus dipakai mesh, rumput, pohon, pemain) ---
@@ -74,7 +80,7 @@ func get_ground_type(x: float, z: float) -> int:
 	var e := 0.6
 	var slope := absf(get_height(x + e, z) - get_height(x - e, z)) / (2.0 * e)
 	slope = maxf(slope, absf(get_height(x, z + e) - get_height(x, z - e)) / (2.0 * e))
-	if slope > 0.55:
+	if slope > 0.42:
 		return GroundType.ROCK
 	if _dirt_noise.get_noise_2d(x, z) > 0.25:
 		return GroundType.DIRT
@@ -84,7 +90,7 @@ func get_ground_type(x: float, z: float) -> int:
 func _ground_color(x: float, z: float) -> Color:
 	match get_ground_type(x, z):
 		GroundType.ROCK:
-			return Color(0.48, 0.48, 0.50)
+			return Color(0.36, 0.34, 0.33)
 		GroundType.DIRT:
 			return Color(0.45, 0.33, 0.20)
 		_:
@@ -109,10 +115,10 @@ func _create_environment() -> void:
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.72, 0.80, 0.92)
-	env.ambient_light_energy = 0.7
+	env.ambient_light_energy = 0.6
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.glow_enabled = true
-	env.glow_intensity = 0.3
+	env.glow_intensity = 0.2
 	env.fog_enabled = true
 	env.fog_light_color = Color(0.75, 0.83, 0.92)
 	env.fog_density = 0.004
@@ -120,7 +126,7 @@ func _create_environment() -> void:
 	add_child(world_env)
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-48.0, -32.0, 0.0)
-	sun.light_energy = 1.15
+	sun.light_energy = 1.0
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 60.0
 	add_child(sun)
@@ -186,20 +192,22 @@ func _create_terrain() -> void:
 	body.add_child(collision)
 
 
-# --- Danau ---
+# --- Danau (air dari godotlearning.com, CC0) ---
 
 func _create_water() -> void:
+	# Shader + material + normal map dari paket CC0 godotlearning
+	# "Stylized Water" (res://water/). Plane 20 m, verteks tiap 0.25 m
+	# (subdivide 80) — sesuai petunjuk halaman itu. Node jangan di-rotate
+	# atau di-scale, ukur lewat PlaneMesh.
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(LAKE_RADIUS * 2.0 + 2.0, LAKE_RADIUS * 2.0 + 2.0)
-	plane.subdivide_width = 32
-	plane.subdivide_depth = 32
+	plane.subdivide_width = 80
+	plane.subdivide_depth = 80
 	var water := MeshInstance3D.new()
 	water.name = "Water"
 	water.mesh = plane
 	water.position = Vector3(LAKE_CENTER.x, WATER_LEVEL, LAKE_CENTER.y)
-	var mat := ShaderMaterial.new()
-	mat.shader = load("res://shaders/water.gdshader")
-	water.material_override = mat
+	water.material_override = load("res://water/water_material.tres")
 	add_child(water)
 
 
@@ -238,6 +246,17 @@ func _create_grass() -> void:
 	var blade := _blade_mesh()
 	grass_material = ShaderMaterial.new()
 	grass_material.shader = load("res://shaders/grass_wind.gdshader")
+	# Tekstur noise shader gameidea: NoiseTexture2D (dibuat di kode, karena
+	# artikelnya juga membuatnya di editor, bukan dari file).
+	var noise_tex := NoiseTexture2D.new()
+	noise_tex.width = 256
+	noise_tex.height = 256
+	noise_tex.seamless = true
+	var fnl := FastNoiseLite.new()
+	fnl.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	fnl.frequency = 0.05
+	noise_tex.noise = fnl
+	grass_material.set_shader_parameter("wind_noise", noise_tex)
 	var multimesh := MultiMesh.new()
 	multimesh.transform_format = MultiMesh.TRANSFORM_3D
 	multimesh.use_colors = false
@@ -359,7 +378,7 @@ func _create_boulders() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 55
 	var rock_mat := StandardMaterial3D.new()
-	rock_mat.albedo_color = Color(0.5, 0.5, 0.52)
+	rock_mat.albedo_color = Color(0.42, 0.40, 0.39)
 	rock_mat.roughness = 0.95
 	var placed := 0
 	var guard := 0
