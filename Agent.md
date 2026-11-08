@@ -29,6 +29,7 @@ Aturan kerja di repo ini. Baca file ini dulu sebelum mengubah apapun.
 - Bebatuan: bola low-poly acak, tabrakan bola; yang besar jadi rintangan.
 - Cahaya: 1 DirectionalLight3D (bayangan, max distance 60) + ProceduralSkyMaterial + kabut + glow. Tetap GL Compatibility.
 - Suara (`scripts/ambience.gd`): prosedural dari noise (AudioStreamWAV) — angin loop (volume ikut `wind_strength` yang sama dengan rumput), air loop 3D di danau, langkah per permukaan (rumput/tanah/batu), tebasan, roboh, cipratan, burung acak. Angin & air aslinya memang noise terfilter, jadi sintesis ini dekat dengan aslinya; rekaman CC0 (Freesound/SFXMint) bisa menggantikan stream-nya nanti — jangan tambah file audio tanpa perintah Bagus.
+- Mode terbang (`set_fly_mode` di `player_controller.gd`, tombol TERBANG / V): kamera terbang terpisah (bukan anak pemain), tanpa tabrakan — bebas terbang menembus apa pun buat inspeksi. Joystick/WASD gerak (10 m/s, 25 kalau LARI/Shift), drag kanan lihat-lihat, LOMPAT = NAIK (tahan), TEBAS = TURUN (tahan), Space/C juga bisa. Pemainnya diam di tempat; tebasan + lompat dimatikan selama terbang.
 - Sentuhan: `emulate_mouse_from_touch` MATI (bug multi-touch hero-game 2026-11-08) — joystick/tombol/kamera menangani InputEventScreenTouch langsung. Node yang dibuat di kode TIDAK bernama otomatis (namanya `@Nama@N`) — beri `.name` eksplisit kalau dicari pakai `$Nama`.
 - Tes: `godot --headless --path . -- --world-test` harus `WORLD_TEST PASS` sebelum push (cek pohon, rumput, air, tanah, tebasan, pendaratan pemain).
 

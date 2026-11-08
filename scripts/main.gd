@@ -30,7 +30,7 @@ func _ready() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	var label := Label.new()
-	label.text = "LIGHT OF KIRANA — dunia v1 | WASD gerak, Space lompat, F tebas pohon, drag kanan kamera"
+	label.text = "LIGHT OF KIRANA — dunia v1 | WASD gerak, Space lompat, F tebas pohon, V/TERBANG mode terbang (joystick gerak, NAIK/TURUN, drag kanan lihat-lihat)"
 	label.position = Vector2(16, 16)
 	layer.add_child(label)
 
@@ -69,8 +69,20 @@ func _run_world_test() -> void:
 		tree.chop(Vector3(0.0, 1.0, 6.0))
 		if not tree.fallen:
 			failures.append("pohon tidak roboh setelah 3 tebasan")
-		# Pemain harus sudah mendarat di tanah (validasi tabrakan heightmap).
+		# Mode terbang: nyala, kamera terbang jadi aktif, lalu balik lagi.
 		var player := get_tree().get_first_node_in_group("player")
+		if player == null:
+			failures.append("pemain null")
+		else:
+			player.set_fly_mode(true)
+			if not player.fly_mode:
+				failures.append("mode terbang tidak nyala")
+			if player._fly_cam == null or not player._fly_cam.current:
+				failures.append("kamera terbang tidak aktif")
+			player.set_fly_mode(false)
+			if player.fly_mode:
+				failures.append("mode terbang tidak mati")
+		# Pemain harus sudah mendarat di tanah (validasi tabrakan heightmap).
 		if player:
 			var ground_h: float = _world.get_height(player.global_position.x, player.global_position.z)
 			if absf(player.global_position.y - ground_h) > 0.6:
