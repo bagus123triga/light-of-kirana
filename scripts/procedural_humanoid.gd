@@ -37,7 +37,7 @@ const FOOT_CLEARANCE := 0.17
 # (1,65 m dari posisi badan saat trigger) dan swing TIDAK diturunkan dari
 # stride/speed — swing ditentukan siklus langkah, bukan kecepatan.
 const RUN_SWING := 0.40
-const RUN_STRIDE := 1.55
+const RUN_STRIDE := 1.80
 const RUN_GATE := 0.75  # kaki kedua baru boleh toe-off saat kaki pertama 75% ayunannya
 const RUN_FOOT_CLEARANCE := 0.24  # lutut terangkat lebih tinggi saat lari
 # Proportions (Bagus, 2026-11-09): upper thigh LONGER than lower
@@ -114,6 +114,7 @@ var jump_state := 0
 var jump_timer := 0.0
 var jump_crouch := 0.0
 var run_jump_phase := 0.0
+var jump_from_run := false
 
 
 func _orange_material() -> StandardMaterial3D:
@@ -364,6 +365,8 @@ func _physics_process(delta: float) -> void:
 		if jump_state == 0 and (test_mode or is_on_floor()):
 			jump_state = 1
 			jump_timer = 0.16
+			jump_from_run = is_running
+			run_jump_phase = 0.0
 			# Cancel any step in progress: a foot mid-swing to a
 			# far-ahead (1.1 m run) target would land way in front
 			# while the body is airborne, and the body would come
@@ -378,10 +381,13 @@ func _physics_process(delta: float) -> void:
 		jump_timer -= delta
 		if jump_timer <= 0.0:
 			jump_state = 2
+			if jump_from_run:
+				# Start in a clear scissor pose: one leg forward, the other back.
+				run_jump_phase = PI * 0.5
 			if not test_mode:
 				velocity.y = 6.5
 	elif jump_state == 2:
-		if is_running:
+		if jump_from_run:
 			run_jump_phase += delta * 8.0
 		# ROOT CAUSE (screenshot 2026-11-09 21:43, reproduced headless):
 		# the old check also required velocity.y < 0.0 — but
@@ -415,10 +421,11 @@ func _physics_process(delta: float) -> void:
 				# absorbs the impact instead of leaving the legs tucked and weightless.
 				land_from[i] = foot_planted_pos[i]
 				land_from[i].y = minf(land_from[i].y, 0.18)
-				var run_jump_landing_offset := sin(run_jump_phase) * 0.18 * (-1.0 if i == 0 else 1.0) if is_running else 0.0
+				var run_jump_landing_offset := sin(run_jump_phase) * 0.34 * (-1.0 if i == 0 else 1.0) if jump_from_run else 0.0
 				land_target[i] = global_position + wish_dir * 0.25 + fwd0 * run_jump_landing_offset + rgt0 * side0 * STEP_LATERAL + fwd0 * 0.05
 				land_target[i].y = 0.05
 			land_t = 0.0
+			jump_from_run = false
 	elif jump_state == 3:
 		jump_timer -= delta
 		if jump_timer <= 0.0:
@@ -473,7 +480,7 @@ func _physics_process(delta: float) -> void:
 	# The foot lands ~0.4 m AHEAD of the body, so the stride target
 	# must be far (body travel during the swing + 0.4 m ahead).
 	var stride_max := 0.45 if not is_running else RUN_STRIDE
-	var stride := clampf(speed * (0.32 if not is_running else 0.52), 0.18, stride_max)
+	var stride := clampf(speed * (0.32 if not is_running else 0.58), 0.18, stride_max)
 	var swing := RUN_SWING if is_running else (clampf(stride / maxf(speed, 0.5), 0.16, SWING_TIME) if moving else SWING_TIME)
 
 	# Push-off lift (run): flight_timer is now set when a foot TOES OFF
@@ -608,8 +615,8 @@ func _physics_process(delta: float) -> void:
 	if not on_floor_now:
 		for i in 2:
 			var jump_side := -1.0 if i == 0 else 1.0
-			var run_jump_air_offset := sin(run_jump_phase) * 0.22 * jump_side if is_running and jump_state == 2 else 0.0
-			var tuck := hip_global + Vector3(0, -0.84, 0) + forward * run_jump_air_offset + right * jump_side * 0.09
+			var run_jump_air_offset := sin(run_jump_phase) * 0.34 * jump_side if jump_from_run and jump_state == 2 else 0.0
+			var tuck := hip_global + Vector3(0, -0.89, 0) + forward * run_jump_air_offset + right * jump_side * 0.09
 			foot_planted_pos[i] = foot_planted_pos[i].lerp(tuck, clampf(delta * 8.0, 0.0, 1.0))
 		_was_airborne = true
 	elif _was_airborne:
