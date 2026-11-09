@@ -24,8 +24,12 @@ func _draw() -> void:
 	var col := Color(0.35, 0.35, 0.35, 0.75) if not _held else Color(0.55, 0.55, 0.55, 0.85)
 	draw_circle(c, r, col)
 	draw_arc(c, r, 0, TAU, 48, Color(0.85, 0.85, 0.85, 0.9), 3.0)
+	# Centre the label by its measured size. The old fixed offset +
+	# width 56 clipped "LOMPAT" to "LOM" (screenshot 2026-11-09).
 	var font := ThemeDB.fallback_font
-	draw_string(font, c + Vector2(-28, 6), label_text, HORIZONTAL_ALIGNMENT_CENTER, 56, 20, Color(0.95, 0.95, 0.95))
+	var font_size := 18
+	var text_size := font.get_string_size(label_text, HORIZONTAL_ALIGNMENT_CENTER, -1, font_size)
+	draw_string(font, Vector2(c.x - text_size.x * 0.5, c.y + text_size.y * 0.35), label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.95, 0.95, 0.95))
 
 
 func _set_held(value: bool) -> void:

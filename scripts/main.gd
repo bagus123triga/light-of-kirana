@@ -6,14 +6,16 @@ extends Node3D
 ## virtual joystick + RUN / JUMP buttons (touch), drag anywhere else to orbit camera.
 
 var humanoid: ProceduralHumanoid
-var camera_pivot: Node3D
 var camera: Camera3D
 var joystick: KiranaVirtualJoystick
 var run_button: KiranaTouchButton
 var jump_button: KiranaTouchButton
 
+# cam_pitch = elevation angle of the camera above the humanoid (radians).
+# Positive = camera above, looking down at the humanoid in the centre.
 var cam_yaw := 0.0
-var cam_pitch := -0.35
+var cam_pitch := 0.35
+const CAM_DISTANCE := 4.2
 var run_held := false
 var _orbit_touch := -1
 var _orbit_last := Vector2.ZERO
@@ -48,7 +50,7 @@ func _build_world() -> void:
 	sky.sky_material = sky_mat
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.7
+	env.ambient_light_energy = 0.55
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 
 	var world_env := WorldEnvironment.new()
@@ -59,7 +61,7 @@ func _build_world() -> void:
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-55, -30, 0)
 	sun.light_color = Color(1.0, 0.98, 0.94)
-	sun.light_energy = 1.15
+	sun.light_energy = 1.0
 	sun.shadow_enabled = true
 	add_child(sun)
 
@@ -89,13 +91,16 @@ func _build_humanoid() -> void:
 
 
 func _build_camera() -> void:
-	camera_pivot = Node3D.new()
-	camera_pivot.name = "CameraPivot"
-	add_child(camera_pivot)
+	# No pivot rotation: the camera is placed on a sphere around the
+	# humanoid every frame and look_at()s the humanoid, so the humanoid
+	# is always in the centre of the screen, upright.
+	# (The old pivot with rotation.x = -0.35 tilted the camera UP, which
+	# pushed the humanoid to the bottom edge, half cut off — screenshot
+	# 2026-11-09 20:55 WIB.)
 	camera = Camera3D.new()
-	camera.position = Vector3(0, 2.2, 4.5)
+	camera.name = "Camera"
 	camera.fov = 60.0
-	camera_pivot.add_child(camera)
+	add_child(camera)
 
 
 func _build_ui() -> void:
@@ -108,23 +113,42 @@ func _build_ui() -> void:
 	hint.add_theme_color_override("font_color", Color(0.25, 0.25, 0.25))
 	layer.add_child(hint)
 
+	# Anchored to the screen corners (not fixed 1280x720 coordinates),
+	# so on the tablet the joystick stays bottom-left and the buttons
+	# stay bottom-right instead of floating mid-screen.
 	joystick = KiranaVirtualJoystick.new()
-	joystick.position = Vector2(24, 480)
-	joystick.size = Vector2(220, 220)
+	joystick.anchor_top = 1.0
+	joystick.anchor_bottom = 1.0
+	joystick.offset_left = 24
+	joystick.offset_top = -244
+	joystick.offset_right = 244
+	joystick.offset_bottom = -24
 	layer.add_child(joystick)
 
 	run_button = KiranaTouchButton.new()
 	run_button.label_text = "LARI"
-	run_button.position = Vector2(1050, 500)
-	run_button.size = Vector2(96, 96)
+	run_button.anchor_left = 1.0
+	run_button.anchor_right = 1.0
+	run_button.anchor_top = 1.0
+	run_button.anchor_bottom = 1.0
+	run_button.offset_left = -260
+	run_button.offset_top = -260
+	run_button.offset_right = -164
+	run_button.offset_bottom = -164
 	run_button.pressed_down.connect(func() -> void: run_held = true)
 	run_button.released_up.connect(func() -> void: run_held = false)
 	layer.add_child(run_button)
 
 	jump_button = KiranaTouchButton.new()
 	jump_button.label_text = "LOMPAT"
-	jump_button.position = Vector2(1160, 600)
-	jump_button.size = Vector2(96, 96)
+	jump_button.anchor_left = 1.0
+	jump_button.anchor_right = 1.0
+	jump_button.anchor_top = 1.0
+	jump_button.anchor_bottom = 1.0
+	jump_button.offset_left = -140
+	jump_button.offset_top = -140
+	jump_button.offset_right = -44
+	jump_button.offset_bottom = -44
 	jump_button.pressed_down.connect(func() -> void: humanoid.want_jump = true)
 	layer.add_child(jump_button)
 
@@ -135,7 +159,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion and _orbit_mouse:
 		var motion := event as InputEventMouseMotion
 		cam_yaw -= motion.relative.x * 0.005
-		cam_pitch = clampf(cam_pitch - motion.relative.y * 0.005, -1.2, 0.4)
+		cam_pitch = clampf(cam_pitch - motion.relative.y * 0.005, 0.05, 1.0)
 	elif event is InputEventScreenTouch:
 		var touch := event as InputEventScreenTouch
 		if touch.pressed and _orbit_touch == -1:
@@ -148,7 +172,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		var d: Vector2 = drag.position - _orbit_last
 		_orbit_last = drag.position
 		cam_yaw -= d.x * 0.006
-		cam_pitch = clampf(cam_pitch - d.y * 0.006, -1.2, 0.4)
+		cam_pitch = clampf(cam_pitch - d.y * 0.006, 0.05, 1.0)
 
 
 func _process(delta: float) -> void:
@@ -174,7 +198,9 @@ func _process(delta: float) -> void:
 	humanoid.is_running = running
 	humanoid.move_input = move2d
 
-	# Third-person camera follows the humanoid.
-	camera_pivot.position = humanoid.global_position + Vector3(0, 1.4, 0)
-	camera_pivot.rotation.y = cam_yaw
-	camera_pivot.rotation.x = cam_pitch
+	# Third-person camera: orbit on a sphere around the humanoid and
+	# look_at() its chest, so it stays centred and upright.
+	var target := humanoid.global_position + Vector3(0, 1.2, 0)
+	var offset := Vector3(sin(cam_yaw) * cos(cam_pitch), sin(cam_pitch), cos(cam_yaw) * cos(cam_pitch)) * CAM_DISTANCE
+	camera.global_position = target + offset
+	camera.look_at(target, Vector3.UP)

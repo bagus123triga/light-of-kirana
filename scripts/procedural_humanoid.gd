@@ -57,7 +57,9 @@ var foot_stepping: Array[bool] = [false, false]
 
 func _orange_material() -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(1.0, 0.45, 0.05)
+	# Deeper orange: the old (1.0, 0.45, 0.05) blew out to yellow under
+	# the midday sun + filmic tonemap (screenshot 2026-11-09).
+	mat.albedo_color = Color(0.95, 0.38, 0.02)
 	mat.roughness = 0.7
 	return mat
 

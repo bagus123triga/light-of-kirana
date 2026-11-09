@@ -62,6 +62,30 @@ func _init() -> void:
 	if run_moved < 5.0:
 		failures.append("run moved too little: %.2f m in 2 s" % run_moved)
 
+	# 5. Camera framing (regression for screenshot 2026-11-09 20:55 WIB:
+	#    humanoid was at the bottom edge, half cut off, because the old
+	#    pivot rotation.x = -0.35 tilted the camera UP). The humanoid's
+	#    chest must project near the centre of the 1280x720 viewport.
+	var main_inst: Node = load("res://scenes/main.tscn").instantiate()
+	root.add_child(main_inst)
+	await process_frame
+	await process_frame
+	await process_frame
+	var cam: Camera3D = main_inst.camera
+	var hum2: Node3D = main_inst.humanoid
+	var chest: Vector3 = hum2.global_position + Vector3(0, 1.0, 0)
+	if cam.is_position_behind(chest):
+		failures.append("camera framing: humanoid is behind the camera")
+	else:
+		# Headless viewport is tiny, so check relative to its centre,
+		# not to 1280x720.
+		var screen_pos := cam.unproject_position(chest)
+		var vp_size := cam.get_viewport().get_visible_rect().size
+		var centre := vp_size * 0.5
+		if absf(screen_pos.x - centre.x) > vp_size.x * 0.2 or absf(screen_pos.y - centre.y) > vp_size.y * 0.2:
+			failures.append("camera framing: chest at %s, not near centre %s (viewport %s)" % [screen_pos, centre, vp_size])
+		print("CAM_TEST chest_screen=%s centre=%s viewport=%s" % [screen_pos, centre, vp_size])
+
 	print("WALK_TEST hip_y=%.2f steps=%d walked=%.2f m ran=%.2f m planted_err=%.3f" % [humanoid.hip_y, humanoid.steps_taken, moved, run_moved, max_planted_err])
 	if failures.is_empty():
 		print("WALK_TEST PASS")
