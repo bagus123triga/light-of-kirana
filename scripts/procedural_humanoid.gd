@@ -75,12 +75,12 @@ var _was_airborne := false
 # clamping the ankle (the walk->run transition was most of the 21
 # remaining run clamps).
 var speed_smooth := 0.0
-# Smoothed speed: a human does not jump from 1.4 to 3.2 m/s in one
-# frame — the run-up takes ~0.3 s. Without it the stride jumped from
-# 0.45 to 1.55 m the instant Shift was pressed and the planted foot
-# was left ~0.8 m behind in a single step, collapsing the hip and
-# clamping the ankle (the walk->run transition was most of the 21
-# remaining run clamps).
+# Horizontal velocity is smoothed as a VECTOR, not only by speed.
+# This prevents instant direction changes and hard stops while the
+# feet are still completing their current swing.
+var horizontal_motion := Vector3.ZERO
+var previous_wish_dir := Vector3.ZERO
+var was_moving := false
 
 var body_root: Node3D
 var shoulder_l: Node3D
@@ -296,6 +296,14 @@ func _physics_process(delta: float) -> void:
 	speed_smooth = move_toward(speed_smooth, speed, (6.0 if speed > speed_smooth else 8.0) * delta)
 	speed = speed_smooth
 	var moving := speed > 0.05
+	var turn_retarget := false
+	if wish_dir.length() > 0.05:
+		var current_wish_dir := wish_dir.normalized()
+		if previous_wish_dir.length() > 0.05:
+			turn_retarget = previous_wish_dir.dot(current_wish_dir) < cos(deg_to_rad(35.0))
+		previous_wish_dir = current_wish_dir
+	else:
+		previous_wish_dir = Vector3.ZERO
 
 	if moving:
 		var target_yaw := atan2(wish_dir.x, wish_dir.z)
@@ -383,9 +391,14 @@ func _physics_process(delta: float) -> void:
 	# running jump. Half speed for those 0.34 s, full speed otherwise.
 	var speed_mult := 0.5 if jump_state == 1 or jump_state == 3 else 1.0
 
-	# Gravity (CharacterBody3D). In test_mode, integrate by hand.
+	# Gravity (CharacterBody3D). Smooth horizontal velocity in both
+	# directions. A scalar speed_smooth alone is insufficient: multiplying
+	# it by wish_dir still makes turning and releasing input instantaneous.
+	var target_horizontal := wish_dir * speed * speed_mult
+	var horizontal_accel := 12.0 if target_horizontal.length() > horizontal_motion.length() else 16.0
+	horizontal_motion = horizontal_motion.move_toward(target_horizontal, horizontal_accel * delta)
 	if test_mode:
-		position += wish_dir * speed * speed_mult * delta
+		position += horizontal_motion * delta
 	else:
 		if is_on_floor():
 			# Launch frame: keep the impulse, don't overwrite it with
@@ -394,10 +407,15 @@ func _physics_process(delta: float) -> void:
 				velocity.y = -0.5
 		else:
 			velocity.y -= GRAVITY * delta
-		velocity.x = wish_dir.x * speed * speed_mult
-		velocity.z = wish_dir.z * speed * speed_mult
+		velocity.x = horizontal_motion.x
+		velocity.z = horizontal_motion.z
 		move_and_slide()
 
+	# Drive gait timing from actual smoothed horizontal movement, not
+	# raw joystick magnitude. This also makes stop/start transitions agree.
+	speed = horizontal_motion.length()
+	speed_factor = clampf(speed / maxf(speed_max, 0.01), 0.0, 1.0)
+	moving = speed > 0.05
 	var on_floor_now := test_mode or is_on_floor()
 	var forward := Vector3(sin(facing_yaw), 0, cos(facing_yaw))
 	var right := Vector3(cos(facing_yaw), 0, -sin(facing_yaw))
@@ -415,6 +433,27 @@ func _physics_process(delta: float) -> void:
 	var stride_max := 0.45 if not is_running else RUN_STRIDE
 	var stride := clampf(speed * (0.32 if not is_running else 0.52), 0.18, stride_max)
 	var swing := RUN_SWING if is_running else (clampf(stride / maxf(speed, 0.5), 0.16, SWING_TIME) if moving else SWING_TIME)
+
+	# Re-aim feet that are already in the air when the player turns.
+	# Keep their current swing progress and current foot position; only
+	# redirect the landing target, avoiding a snap or a stale old heading.
+	if turn_retarget and moving:
+		for i in 2:
+			if foot_stepping[i]:
+				var turn_side := -1.0 if i == 0 else 1.0
+				foot_target_pos[i] = global_position + wish_dir.normalized() * stride + right * turn_side * STEP_LATERAL + forward * 0.05
+				foot_target_pos[i].y = 0.05
+
+	# When movement settles to idle, bring any active swing back under
+	# the body instead of letting it finish at the old forward stride.
+	if was_moving and not moving:
+		for i in 2:
+			if foot_stepping[i]:
+				var stop_side := -1.0 if i == 0 else 1.0
+				foot_target_pos[i] = global_position + right * stop_side * STEP_LATERAL + forward * 0.05
+				foot_target_pos[i].y = 0.05
+	was_moving = moving
+
 	# Push-off lift (run): flight_timer is now set when a foot TOES OFF
 	# (starts its swing) while the other foot is also in the air — the
 	# brief moment both feet are off the ground, when the hip rises
