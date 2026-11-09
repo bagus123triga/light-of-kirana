@@ -733,10 +733,10 @@ func _physics_process(delta: float) -> void:
 	var swing_amount := sin(gait_phase) * arm_swing * speed_factor
 	shoulder_l.rotation.x = swing_amount
 	shoulder_r.rotation.x = -swing_amount
-	# Angle the upper arms slightly OUTWARD instead of letting them rest
-	# against the torso. The sign is mirrored for left/right shoulders.
-	shoulder_l.rotation.z = -0.12
-	shoulder_r.rotation.z = 0.12
+	# Keep both arms hanging vertically with a small natural gap from the torso.
+	# No outward shoulder roll: it made the hands look detached and slanted.
+	shoulder_l.rotation.z = 0.0
+	shoulder_r.rotation.z = 0.0
 	# Elbow: bent ~0.4 rad at rest, flexes a bit more on the forward
 	# swing; wrist keeps the hand roughly level with a small flick.
 	# During the jump crouch the arms pull back with the press.
