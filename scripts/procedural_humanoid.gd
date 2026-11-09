@@ -113,6 +113,7 @@ var land_t := 0.0
 var jump_state := 0
 var jump_timer := 0.0
 var jump_crouch := 0.0
+var run_jump_phase := 0.0
 
 
 func _orange_material() -> StandardMaterial3D:
@@ -380,6 +381,8 @@ func _physics_process(delta: float) -> void:
 			if not test_mode:
 				velocity.y = 6.5
 	elif jump_state == 2:
+		if is_running:
+			run_jump_phase += delta * 8.0
 		# ROOT CAUSE (screenshot 2026-11-09 21:43, reproduced headless):
 		# the old check also required velocity.y < 0.0 — but
 		# move_and_slide() ZEROES the downward velocity the moment
@@ -412,7 +415,8 @@ func _physics_process(delta: float) -> void:
 				# absorbs the impact instead of leaving the legs tucked and weightless.
 				land_from[i] = foot_planted_pos[i]
 				land_from[i].y = minf(land_from[i].y, 0.18)
-				land_target[i] = global_position + wish_dir * 0.25 + rgt0 * side0 * STEP_LATERAL + fwd0 * 0.05
+				var run_jump_offset := sin(run_jump_phase) * 0.18 * (-1.0 if i == 0 else 1.0) if is_running else 0.0
+				land_target[i] = global_position + wish_dir * 0.25 + fwd0 * run_jump_offset + rgt0 * side0 * STEP_LATERAL + fwd0 * 0.05
 				land_target[i].y = 0.05
 			land_t = 0.0
 	elif jump_state == 3:
@@ -603,7 +607,9 @@ func _physics_process(delta: float) -> void:
 	# — the old snap is what made the jump look like an animation.
 	if not on_floor_now:
 		for i in 2:
-			var tuck := hip_global + Vector3(0, -0.78, 0) + right * (-1.0 if i == 0 else 1.0) * 0.09
+			var jump_side := -1.0 if i == 0 else 1.0
+			var run_jump_offset := sin(run_jump_phase) * 0.22 * jump_side if is_running and jump_state == 2 else 0.0
+			var tuck := hip_global + Vector3(0, -0.84, 0) + forward * run_jump_offset + right * jump_side * 0.09
 			foot_planted_pos[i] = foot_planted_pos[i].lerp(tuck, clampf(delta * 8.0, 0.0, 1.0))
 		_was_airborne = true
 	elif _was_airborne:
@@ -692,7 +698,7 @@ func _physics_process(delta: float) -> void:
 	for i in 2:
 		if is_running and not foot_stepping[i] and on_floor_now and jump_state == 0:
 			var behind := (global_position - foot_planted_pos[i]).dot(forward)
-			foot_planted_pos[i].y = 0.05 + minf(maxf(behind - 0.15, 0.0) * 0.35, 0.12)
+			foot_planted_pos[i].y = 0.05 + minf(maxf(behind - 0.08, 0.0) * 0.42, 0.17)
 
 	# --- Two-bone IK + foot placement ---
 	# Visual ankle is clamped to leg reach so the shin can never detach
