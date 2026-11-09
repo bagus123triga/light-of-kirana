@@ -15,6 +15,8 @@ var jump_button: KiranaTouchButton
 # Positive = camera above, looking down at the humanoid in the centre.
 var cam_yaw := 0.0
 var cam_pitch := 0.35
+const CAMERA_MIN_PITCH := -0.35
+const CAMERA_MAX_PITCH := 1.54
 const CAM_DISTANCE := 4.2
 var run_held := false
 var _orbit_touch := -1
@@ -87,7 +89,8 @@ func _build_world() -> void:
 	var staircase_scene: PackedScene = preload("res://scenes/props/modular_house_staircase.tscn")
 	var staircase := staircase_scene.instantiate() as Node3D
 	staircase.name = "HouseStaircase_Test"
-	staircase.position = Vector3(2.0, 0.0, -0.5)
+	staircase.rotation.y = PI
+	staircase.position = Vector3(1.8, 0.0, -3.2)
 	add_child(staircase)
 
 
@@ -161,13 +164,13 @@ func _build_ui() -> void:
 	layer.add_child(jump_button)
 
 
-func _unhandled_input(event: InputEvent) -> void:
+func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		_orbit_mouse = event.pressed
 	elif event is InputEventMouseMotion and _orbit_mouse:
 		var motion := event as InputEventMouseMotion
 		cam_yaw -= motion.relative.x * 0.005
-		cam_pitch = clampf(cam_pitch - motion.relative.y * 0.005, 0.05, 1.48)
+		cam_pitch = clampf(cam_pitch - motion.relative.y * 0.005, CAMERA_MIN_PITCH, CAMERA_MAX_PITCH)
 	elif event is InputEventScreenTouch:
 		var touch := event as InputEventScreenTouch
 		if touch.pressed and _orbit_touch == -1:
@@ -180,7 +183,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		var d: Vector2 = drag.position - _orbit_last
 		_orbit_last = drag.position
 		cam_yaw -= d.x * 0.006
-		cam_pitch = clampf(cam_pitch - d.y * 0.006, 0.05, 1.48)
+		cam_pitch = clampf(cam_pitch - d.y * 0.006, CAMERA_MIN_PITCH, CAMERA_MAX_PITCH)
 
 
 func _process(delta: float) -> void:
@@ -214,7 +217,7 @@ func _process(delta: float) -> void:
 	# As the camera rises toward a top-down angle, lower its look target
 	# toward the feet. This keeps the whole character framed like a standard
 	# third-person game instead of aiming at the chest and cropping the legs.
-	var overhead_blend := clampf(inverse_lerp(0.65, 1.48, cam_pitch), 0.0, 1.0)
+	var overhead_blend := clampf(inverse_lerp(0.65, CAMERA_MAX_PITCH, cam_pitch), 0.0, 1.0)
 	var target_height := lerpf(1.2, 0.22, overhead_blend)
 	var target := humanoid.global_position + Vector3(0, target_height, 0)
 	var offset := Vector3(sin(cam_yaw) * cos(cam_pitch), sin(cam_pitch), cos(cam_yaw) * cos(cam_pitch)) * CAM_DISTANCE

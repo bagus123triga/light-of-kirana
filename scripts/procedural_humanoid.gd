@@ -118,6 +118,8 @@ var jump_from_run := false
 var run_jump_lead_foot := 0
 # Smoothly blend into the belly-down freefall pose instead of snapping.
 var fall_pose_blend := 0.0
+var fall_foot_local: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO]
+var fall_foot_captured := false
 
 
 func _orange_material() -> StandardMaterial3D:
@@ -478,7 +480,9 @@ func _physics_process(delta: float) -> void:
 	moving = speed > 0.05
 	var on_floor_now := test_mode or is_on_floor()
 	var fall_pose_target := 1.0 if not on_floor_now and jump_state != 2 else 0.0
-	fall_pose_blend = move_toward(fall_pose_blend, fall_pose_target, delta / 0.38)
+	fall_pose_blend = move_toward(fall_pose_blend, fall_pose_target, delta / 2.0)
+	if fall_pose_target <= 0.0:
+		fall_foot_captured = false
 	var fall_pose_weight := _smoothstep(fall_pose_blend)
 	var forward := Vector3(sin(facing_yaw), 0, cos(facing_yaw))
 	var right := Vector3(cos(facing_yaw), 0, -sin(facing_yaw))
@@ -638,24 +642,26 @@ func _physics_process(delta: float) -> void:
 				airborne_target = hip_global + Vector3(0, -0.89, 0) + forward * run_jump_air_offset + right * jump_side * 0.09
 				foot_planted_pos[i] = foot_planted_pos[i].lerp(airborne_target, clampf(delta * 8.0, 0.0, 1.0))
 			else:
-				# Walking off an edge is NOT a jump: immediately release
-				# the old world-space planted foot. Interpolating from the
-				# platform lets the pelvis fall below the ankle, making IK
-				# point the thigh upward through the head (the screenshot bug).
-				# Re-parent the ankle target to the pelvis in this same frame.
-				# Wingsuit / skydiving silhouette: legs trail slightly apart
-				# with a soft knee bend, rather than hanging as a rigid pair.
-				# Belly-down glide: legs trail behind the pelvis with a relaxed knee bend.
-				# Lift the legs behind the pelvis; the torso pitch makes the head
-				# dip below the hips for a proper belly-down dive silhouette.
-				airborne_target = hip_global + Vector3(0, 0.18, 0) - forward * 0.58 + right * jump_side * 0.14
-				# Ease both ankles from their last planted positions into the
-				# trailing wingsuit pose over the same transition as the torso.
+				# Capture each ankle in pelvis-local coordinates once.
+				# World-space interpolation while falling can invert the knees.
+				if not fall_foot_captured:
+					for j in 2:
+						var side_j := -1.0 if j == 0 else 1.0
+						var local_ankle := body_root.global_basis.inverse() * (foot_planted_pos[j] - hip_global)
+						local_ankle.y = clampf(local_ankle.y, -0.90, -0.65)
+						local_ankle.x = side_j * 0.10
+						fall_foot_local[j] = local_ankle
+					fall_foot_captured = true
+				# Pose remains relative to the rotating torso, so feet trail
+				# behind the pelvis instead of sticking vertically upward.
+				var glide_local := Vector3(jump_side * 0.16, -0.78, -0.10)
+				fall_foot_local[i] = fall_foot_local[i].lerp(glide_local, fall_pose_weight)
+				airborne_target = hip_global + body_root.global_basis * fall_foot_local[i]
 				foot_stepping[i] = false
 				foot_step_t[i] = 0.0
-				foot_planted_pos[i] = foot_planted_pos[i].lerp(airborne_target, clampf(delta * 5.0, 0.0, 1.0))
-				foot_target_pos[i] = foot_planted_pos[i]
-				foot_from_pos[i] = foot_planted_pos[i]
+				foot_planted_pos[i] = airborne_target
+				foot_target_pos[i] = airborne_target
+				foot_from_pos[i] = airborne_target
 		_was_airborne = true
 	elif _was_airborne:
 		# No hip-velocity kick here anymore (Bagus, 2026-11-09): the
@@ -731,9 +737,9 @@ func _physics_process(delta: float) -> void:
 	# Rotate the torso/head forward into a prone, belly-down wingsuit pose.
 	# Blend into/out of the pose so stepping off an edge does not snap.
 	var normal_body_pitch := speed_factor * forward_lean
-	var fall_body_pitch := 1.72
+	var fall_body_pitch := 1.30
 	var body_pitch_target := lerpf(normal_body_pitch, fall_body_pitch, fall_pose_weight)
-	body_root.rotation.x = lerp_angle(body_root.rotation.x, body_pitch_target, clampf(delta * 7.0, 0.0, 1.0))
+	body_root.rotation.x = body_pitch_target
 	var normal_body_roll := sin(gait_phase) * 0.02 * speed_factor
 	var fall_body_roll := sin(time_alive * 2.2) * 0.035
 	body_root.rotation.z = lerpf(normal_body_roll, fall_body_roll, fall_pose_weight)
