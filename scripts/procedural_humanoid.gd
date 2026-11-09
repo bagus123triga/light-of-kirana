@@ -254,14 +254,18 @@ func _ready() -> void:
 
 func _solve_two_bone(hip: Vector3, target: Vector3, bend_dir: Vector3) -> Vector3:
 	var to_target := target - hip
-	var d := clampf(to_target.length(), 0.05, LEG_UPPER + LEG_LOWER - 0.01)
-	var dir := to_target / to_target.length()
+	var raw_distance := to_target.length()
+	# Degenerate targets can occur during a fall or floor transition.
+	# Never normalize a zero vector or let the knee flip unpredictably.
+	var dir := Vector3.DOWN if raw_distance < 0.001 else to_target / raw_distance
+	var d := clampf(raw_distance, absf(LEG_UPPER - LEG_LOWER) + 0.001, LEG_UPPER + LEG_LOWER - 0.01)
 	var cos_a := clampf((LEG_UPPER * LEG_UPPER + d * d - LEG_LOWER * LEG_LOWER) / (2.0 * LEG_UPPER * d), -1.0, 1.0)
 	var a := LEG_UPPER * cos_a
 	var h := sqrt(maxf(LEG_UPPER * LEG_UPPER - a * a, 0.0))
 	var perp := bend_dir - dir * bend_dir.dot(dir)
 	if perp.length() < 0.001:
-		perp = Vector3.UP
+		var fallback_axis := Vector3.RIGHT if absf(dir.dot(Vector3.RIGHT)) < 0.9 else Vector3.FORWARD
+		perp = fallback_axis - dir * fallback_axis.dot(dir)
 	perp = perp.normalized()
 	return hip + dir * a + perp * h
 
@@ -620,10 +624,19 @@ func _physics_process(delta: float) -> void:
 	if not on_floor_now:
 		for i in 2:
 			var jump_side := -1.0 if i == 0 else 1.0
-			var run_jump_air_side := 1.0 if i != run_jump_lead_foot else -1.0
-			var run_jump_air_offset := sin(run_jump_phase) * 0.38 * run_jump_air_side if jump_from_run and jump_state == 2 else 0.0
-			var tuck := hip_global + Vector3(0, -0.89, 0) + forward * run_jump_air_offset + right * jump_side * 0.09
-			foot_planted_pos[i] = foot_planted_pos[i].lerp(tuck, clampf(delta * 8.0, 0.0, 1.0))
+			var airborne_target: Vector3
+			if jump_state == 2:
+				# Intentional jump: tuck the knees, with a trailing-foot
+				# scissor only for a running take-off.
+				var run_jump_air_side := 1.0 if i != run_jump_lead_foot else -1.0
+				var run_jump_air_offset := sin(run_jump_phase) * 0.38 * run_jump_air_side if jump_from_run else 0.0
+				airborne_target = hip_global + Vector3(0, -0.89, 0) + forward * run_jump_air_offset + right * jump_side * 0.09
+			else:
+				# Unplanned fall (e.g. walking off a platform): legs hang
+				# DOWN from the pelvis instead of curling toward the head.
+				# Keep ankles just inside full extension for a stable IK chain.
+				airborne_target = hip_global + Vector3(0, -(LEG_UPPER + LEG_LOWER - 0.035), 0) + right * jump_side * 0.09
+			foot_planted_pos[i] = foot_planted_pos[i].lerp(airborne_target, clampf(delta * 12.0, 0.0, 1.0))
 		_was_airborne = true
 	elif _was_airborne:
 		# No hip-velocity kick here anymore (Bagus, 2026-11-09): the
