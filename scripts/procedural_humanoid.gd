@@ -435,6 +435,11 @@ func _physics_process(delta: float) -> void:
 		flight_timer -= delta
 	for i in 2:
 		var side := -1.0 if i == 0 else 1.0
+		# Shared direction/prediction values for every branch in this loop.
+		# Declaring these once avoids duplicate local declarations in GDScript.
+		var step_forward := horizontal_motion.normalized() if speed > 0.05 else forward
+		var step_right := Vector3(step_forward.z, 0.0, -step_forward.x)
+		var landing_lead := clampf(stride - speed * swing, 0.08, 0.45)
 		# Feet must NEVER cross the midline (Bagus, 2026-11-09): when
 		# the body turns, a planted foot can end up on the other side
 		# of the body. The foot then takes a short recovery step back
@@ -448,9 +453,6 @@ func _physics_process(delta: float) -> void:
 			# target goes stale during turns and while accelerating/braking,
 			# making the body run past the foot before it can land.
 			var swing_remaining := swing * (1.0 - clampf(foot_step_t[i], 0.0, 1.0))
-			var step_forward := horizontal_motion.normalized() if speed > 0.05 else forward
-			var step_right := Vector3(step_forward.z, 0.0, -step_forward.x)
-			var landing_lead := clampf(stride - speed * swing, 0.08, 0.45)
 			var swing_side := -1.0 if i == 0 else 1.0
 			foot_target_pos[i] = global_position + horizontal_motion * swing_remaining + step_forward * (landing_lead + 0.05) + step_right * swing_side * STEP_LATERAL
 			foot_target_pos[i].y = 0.05
@@ -475,8 +477,6 @@ func _physics_process(delta: float) -> void:
 				foot_planted_pos[i].y = 0.05
 				steps_taken += 1
 		elif on_floor_now and flight_timer <= 0.0 and (jump_state == 0 or jump_state == 3):
-			var step_forward := horizontal_motion.normalized() if speed > 0.05 else forward
-			var step_right := Vector3(step_forward.z, 0.0, -step_forward.x)
 			var ideal := global_position + step_forward * stride * LAND_BIAS + step_right * side * STEP_LATERAL + step_forward * 0.05
 			ideal.y = 0.05
 			var lag := (ideal - foot_planted_pos[i]).dot(forward) if moving else (ideal - foot_planted_pos[i]).length()
@@ -493,9 +493,6 @@ func _physics_process(delta: float) -> void:
 				# Predict the body position at touchdown and place the foot a
 				# small distance ahead of it. RUN_STRIDE is total step reach,
 				# not a fixed world-space point the body can run past.
-				var step_forward := horizontal_motion.normalized() if speed > 0.05 else forward
-				var step_right := Vector3(step_forward.z, 0.0, -step_forward.x)
-				var landing_lead := clampf(stride - speed * swing, 0.08, 0.45)
 				var target := global_position + horizontal_motion * swing + step_forward * (landing_lead + 0.05) + step_right * side * STEP_LATERAL
 				target.y = 0.05
 				foot_from_pos[i] = foot_planted_pos[i]
