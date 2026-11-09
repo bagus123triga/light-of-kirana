@@ -1,5 +1,5 @@
 extends Control
-class_name VirtualJoystick
+class_name KiranaVirtualJoystick
 
 ## Analog virtual kiri: seret knob, output -1..1 (y ke bawah = +).
 ## Menangani InputEventScreenTouch langsung (emulate_mouse_from_touch MATI,

@@ -16,7 +16,7 @@ var world: Node3D
 
 var _yaw := 0.0
 var _pitch := 18.0
-var _joystick: VirtualJoystick
+var _joystick: KiranaVirtualJoystick
 var _up_held := false
 var _down_held := false
 var _fast_toggle := false
@@ -89,7 +89,7 @@ func _update_camera() -> void:
 func _create_touch_controls() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
-	_joystick = VirtualJoystick.new()
+	_joystick = KiranaVirtualJoystick.new()
 	layer.add_child(_joystick)
 	var fast_btn := _make_button("CEPAT", Vector2(-292, -272))
 	fast_btn.toggle_mode = true

@@ -1,5 +1,5 @@
 ; Engine configuration file.
-; LIGHT OF KIRANA — starter Godot 4.4 Android.
+; LIGHT OF KIRANA — starter Godot 4.7 Android.
 
 config_version=5
 
@@ -9,7 +9,7 @@ config/name="Light of Kirana"
 config/description="Light of Kirana is an open-world adventure set in a vast kingdom where the light is slowly fading. As Kirana, a young wanderer carrying the last spark of light, you explore forests, mountains, and ancient ruins — climb anything, swim across rivers, solve shrines, and battle creatures of darkness to bring the light back to the world."
 config/icon="res://assets/icon.svg"
 run/main_scene="res://scenes/main.tscn"
-config/features=PackedStringArray("4.4", "GL Compatibility")
+config/features=PackedStringArray("4.7", "GL Compatibility")
 
 [input_devices]
 
