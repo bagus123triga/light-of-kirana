@@ -89,8 +89,8 @@ func _build_world() -> void:
 	var staircase_scene: PackedScene = preload("res://scenes/props/modular_house_staircase.tscn")
 	var staircase := staircase_scene.instantiate() as Node3D
 	staircase.name = "HouseStaircase_Test"
-	staircase.rotation.y = PI
-	staircase.position = Vector3(1.8, 0.0, -3.2)
+	staircase.rotation.y = 0.0
+	staircase.position = Vector3(0.0, 0.0, -3.2)
 	add_child(staircase)
 
 
@@ -214,7 +214,12 @@ func _process(delta: float) -> void:
 	if move2d.length() > 1.0:
 		move2d = move2d.normalized()
 
-	var running := run_held or Input.is_key_pressed(KEY_SHIFT)
+	if humanoid.is_on_stairs:
+		run_held = false
+		run_button.visible = false
+	else:
+		run_button.visible = true
+	var running := (run_held or Input.is_key_pressed(KEY_SHIFT)) and not humanoid.is_on_stairs
 	if Input.is_key_pressed(KEY_SPACE):
 		humanoid.want_jump = true
 

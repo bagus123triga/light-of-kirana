@@ -22,7 +22,7 @@ class_name ProceduralHumanoid
 # order overrides the panel: a real walk is ~1.4 m/s (5 km/h) and a
 # real run ~3.2 m/s, not a sprint.
 const WALK_SPEED := 1.4
-const RUN_SPEED := 3.8
+const RUN_SPEED := 4.1
 const SWING_TIME := 0.38
 const HIP_STIFFNESS := 260.0
 const HIP_DAMPING := 26.0
@@ -58,6 +58,8 @@ const GRAVITY := 20.0
 var move_input := Vector2.ZERO
 var wish_dir := Vector3.ZERO
 var is_running := false
+var is_on_stairs := false
+var stair_up_direction := Vector3.UP
 var want_jump := false
 var test_mode := false
 
@@ -294,11 +296,25 @@ func _is_crossed(i: int, right: Vector3) -> bool:
 	var lateral := (foot_planted_pos[i] - global_position).dot(right)
 	return (i == 0 and lateral > -0.03) or (i == 1 and lateral < 0.03)
 
+func set_stair_state(active: bool, up_direction: Vector3 = Vector3.UP) -> void:
+	is_on_stairs = active
+	if active and up_direction.length() > 0.01:
+		stair_up_direction = up_direction.normalized()
+
+
+func _foot_ground_y(point: Vector3) -> float:
+	var query := PhysicsRayQueryParameters3D.create(point + Vector3.UP * 2.0, point + Vector3.DOWN * 3.0)
+	query.exclude = [get_rid()]
+	query.collision_mask = 1
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	return float(hit.position.y) + 0.05 if not hit.is_empty() else global_position.y + 0.05
+
+
 func _start_recovery_step(i: int, right: Vector3, forward: Vector3) -> void:
 	var side := -1.0 if i == 0 else 1.0
 	foot_from_pos[i] = foot_planted_pos[i]
 	foot_target_pos[i] = global_position + right * side * STEP_LATERAL + forward * 0.05
-	foot_target_pos[i].y = 0.05
+	foot_target_pos[i].y = _foot_ground_y(foot_target_pos[i])
 	foot_step_t[i] = 0.0
 	foot_stepping[i] = true
 
@@ -436,7 +452,7 @@ func _physics_process(delta: float) -> void:
 				var run_jump_landing_side := 1.0 if i != run_jump_lead_foot else -1.0
 				var run_jump_landing_offset := sin(run_jump_phase) * 0.30 * run_jump_landing_side if jump_from_run else 0.0
 				land_target[i] = global_position + wish_dir * 0.25 + fwd0 * run_jump_landing_offset + rgt0 * side0 * STEP_LATERAL + fwd0 * 0.05
-				land_target[i].y = 0.05
+				land_target[i].y = _foot_ground_y(land_target[i])
 			land_t = 0.0
 			jump_from_run = false
 	elif jump_state == 3:
@@ -497,9 +513,10 @@ func _physics_process(delta: float) -> void:
 	# the feet looked too fast even though the speed was right.
 	# The foot lands ~0.4 m AHEAD of the body, so the stride target
 	# must be far (body travel during the swing + 0.4 m ahead).
-	var stride_max := 0.45 if not is_running else RUN_STRIDE
-	var stride := clampf(speed * (0.32 if not is_running else 0.58), 0.18, stride_max)
-	var swing := RUN_SWING if is_running else (clampf(stride / maxf(speed, 0.5), 0.16, SWING_TIME) if moving else SWING_TIME)
+	var stride_max := 0.32 if is_on_stairs else (0.45 if not is_running else RUN_STRIDE)
+	var stride_rate := 0.25 if is_on_stairs else (0.32 if not is_running else 0.58)
+	var stride := clampf(speed * stride_rate, 0.14, stride_max)
+	var swing := 0.46 if is_on_stairs else (RUN_SWING if is_running else (clampf(stride / maxf(speed, 0.5), 0.16, SWING_TIME) if moving else SWING_TIME))
 
 	# Push-off lift (run): flight_timer is now set when a foot TOES OFF
 	# (starts its swing) while the other foot is also in the air — the
@@ -538,7 +555,7 @@ func _physics_process(delta: float) -> void:
 			foot_target_pos[i].y = 0.05
 			var t := _smoothstep(foot_step_t[i])
 			var pos := foot_from_pos[i].lerp(foot_target_pos[i], t)
-			var clearance := FOOT_CLEARANCE if not is_running else RUN_FOOT_CLEARANCE
+			var clearance := (0.22 if wish_dir.dot(stair_up_direction) > 0.0 else 0.12) if is_on_stairs else (FOOT_CLEARANCE if not is_running else RUN_FOOT_CLEARANCE)
 			# ROOT CAUSE of the landing "nyedat" (Bagus, 2026-11-09):
 			# the old formula forced pos.y onto the ground arc
 			# (0.05 + sin*clearance), which assumes the foot starts
@@ -554,11 +571,11 @@ func _physics_process(delta: float) -> void:
 				foot_stepping[i] = false
 				foot_step_t[i] = 0.0
 				foot_planted_pos[i] = foot_target_pos[i]
-				foot_planted_pos[i].y = 0.05
+				foot_planted_pos[i].y = _foot_ground_y(foot_planted_pos[i])
 				steps_taken += 1
 		elif on_floor_now and flight_timer <= 0.0 and (jump_state == 0 or jump_state == 3):
 			var ideal := global_position + step_forward * stride * LAND_BIAS + step_right * side * STEP_LATERAL + step_forward * 0.05
-			ideal.y = 0.05
+			ideal.y = _foot_ground_y(ideal)
 			var lag := (ideal - foot_planted_pos[i]).dot(forward) if moving else (ideal - foot_planted_pos[i]).length()
 			var other_stepping := foot_stepping[1 - i]
 			# Alternation, always. Walk: one foot at a time. Run: the
@@ -576,7 +593,7 @@ func _physics_process(delta: float) -> void:
 				# small distance ahead of it. RUN_STRIDE is total step reach,
 				# not a fixed world-space point the body can run past.
 				var target := global_position + horizontal_motion * swing + step_forward * (landing_lead + 0.05) + step_right * side * STEP_LATERAL
-				target.y = 0.05
+				target.y = _foot_ground_y(target)
 				foot_from_pos[i] = foot_planted_pos[i]
 				foot_target_pos[i] = target
 				foot_step_t[i] = 0.0
@@ -610,7 +627,7 @@ func _physics_process(delta: float) -> void:
 		for i in 2:
 			var idle_side := -1.0 if i == 0 else 1.0
 			var idle_foot := global_position + right * idle_side * STEP_LATERAL + forward * 0.05
-			idle_foot.y = 0.05
+			idle_foot.y = _foot_ground_y(idle_foot)
 			foot_planted_pos[i] = foot_planted_pos[i].move_toward(idle_foot, delta * 2.5)
 			foot_target_pos[i] = idle_foot
 			foot_from_pos[i] = idle_foot
@@ -732,7 +749,9 @@ func _physics_process(delta: float) -> void:
 	# 0.03 walk / a touch more only when running.
 	# A small forward pitch gives running a clear sense of momentum.
 	# Positive X rotation leans the torso toward the character's +Z forward.
-	var forward_lean := 0.025 if not is_running else 0.18
+	var climbing_up := is_on_stairs and wish_dir.dot(stair_up_direction) > 0.0
+	var descending_stairs := is_on_stairs and wish_dir.dot(stair_up_direction) < 0.0
+	var forward_lean := 0.14 if climbing_up else (-0.04 if descending_stairs else (0.025 if not is_running else 0.18))
 	var is_gliding_fall := not on_floor_now and jump_state != 2
 	# Rotate the torso/head forward into a prone, belly-down wingsuit pose.
 	# Blend into/out of the pose so stepping off an edge does not snap.
