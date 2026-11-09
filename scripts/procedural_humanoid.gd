@@ -631,12 +631,19 @@ func _physics_process(delta: float) -> void:
 				var run_jump_air_side := 1.0 if i != run_jump_lead_foot else -1.0
 				var run_jump_air_offset := sin(run_jump_phase) * 0.38 * run_jump_air_side if jump_from_run else 0.0
 				airborne_target = hip_global + Vector3(0, -0.89, 0) + forward * run_jump_air_offset + right * jump_side * 0.09
+				foot_planted_pos[i] = foot_planted_pos[i].lerp(airborne_target, clampf(delta * 8.0, 0.0, 1.0))
 			else:
-				# Unplanned fall (e.g. walking off a platform): legs hang
-				# DOWN from the pelvis instead of curling toward the head.
-				# Keep ankles just inside full extension for a stable IK chain.
-				airborne_target = hip_global + Vector3(0, -(LEG_UPPER + LEG_LOWER - 0.035), 0) + right * jump_side * 0.09
-			foot_planted_pos[i] = foot_planted_pos[i].lerp(airborne_target, clampf(delta * 12.0, 0.0, 1.0))
+				# Walking off an edge is NOT a jump: immediately release
+				# the old world-space planted foot. Interpolating from the
+				# platform lets the pelvis fall below the ankle, making IK
+				# point the thigh upward through the head (the screenshot bug).
+				# Re-parent the ankle target to the pelvis in this same frame.
+				airborne_target = hip_global + Vector3(0, -(LEG_UPPER + LEG_LOWER - 0.06), 0) + right * jump_side * 0.09
+				foot_stepping[i] = false
+				foot_step_t[i] = 0.0
+				foot_planted_pos[i] = airborne_target
+				foot_target_pos[i] = airborne_target
+				foot_from_pos[i] = airborne_target
 		_was_airborne = true
 	elif _was_airborne:
 		# No hip-velocity kick here anymore (Bagus, 2026-11-09): the
