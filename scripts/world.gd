@@ -1,9 +1,10 @@
 extends Node3D
 
 ## LIGHT OF KIRANA — dunia v1.
-## Tanah berbukit dari heightmap + noise (tanpa addon), dicat per-vertex:
-## rumput / tanah gundul / batu (lereng curam). Danau + air shader stylized.
-## Rumput MultiMesh + shader angin. Pohon bisa ditebang. Bebatuan.
+## Tanah berbukit dari heightmap + noise (tanpa addon), bertekstur CC0
+## Poly Haven (rumput / tanah gundul / batu lereng curam, mask per-vertex).
+## Danau bertepi berombak (tanpa garis lurus) + air shader stylized.
+## Rumput MultiMesh + shader angin. Tanpa pohon & batu (minta Bagus 2026-11-09).
 ## Cahaya: 1 matahari + langit + kabut (GL Compatibility).
 
 enum GroundType { GRASS, DIRT, ROCK }
@@ -14,11 +15,9 @@ const LAKE_CENTER := Vector2(14.0, 12.0)
 const LAKE_RADIUS := 9.0
 const WATER_LEVEL := -0.25
 const GRASS_COUNT := 60000
-const TREE_COUNT := 24
-const BOULDER_COUNT := 14
 
-var trees: Array = []
 var grass_material: ShaderMaterial
+var terrain_material: ShaderMaterial
 var wind_strength := 0.35
 
 var _height_noise := FastNoiseLite.new()
@@ -40,8 +39,6 @@ func _ready() -> void:
 	_create_terrain()
 	_create_water()
 	_create_grass()
-	_create_trees()
-	_create_boulders()
 
 
 func _process(delta: float) -> void:
@@ -67,11 +64,20 @@ func set_interaction_position(p: Vector3) -> void:
 
 # --- Tinggi & jenis tanah (satu rumus dipakai mesh, rumput, pohon, pemain) ---
 
+# Jari-jari danau berubah-ubah menurut sudut (2 sinus, periode beda) —
+# tepinya berombak organik, tidak ada garis lurus (minta Bagus 2026-11-09).
+# Rentang ~6–12 m. Kontinu di sudut 0/2π (sinus kelipatan bulat).
+func _lake_radius_at(angle: float) -> float:
+	return LAKE_RADIUS + 2.0 * sin(angle * 2.0 + 0.7) + 1.0 * sin(angle * 5.0 + 2.0)
+
+
 func get_height(x: float, z: float) -> float:
 	var h := _height_noise.get_noise_2d(x, z) * 3.0
-	var d := Vector2(x, z).distance_to(LAKE_CENTER)
-	if d < LAKE_RADIUS:
-		var f := smoothstep(0.0, 1.0, d / LAKE_RADIUS)
+	var rel := Vector2(x, z) - LAKE_CENTER
+	var d := rel.length()
+	var r := _lake_radius_at(atan2(rel.y, rel.x))
+	if d < r:
+		var f := smoothstep(0.0, 1.0, d / r)
 		h = lerpf(-1.6, h, f)
 	# Ratakan area spawn pemain (0, 6).
 	var ds := Vector2(x, z).distance_to(Vector2(0.0, 6.0))
@@ -100,6 +106,18 @@ func _ground_color(x: float, z: float) -> Color:
 		_:
 			var v := 0.9 + 0.2 * _dirt_noise.get_noise_2d(x * 0.5, z * 0.5)
 			return Color(0.30 * v, 0.48 * v, 0.20 * v)
+
+
+# Mask jenis tanah untuk shader terrain (r=tanah gundul, g=rumput, b=batu).
+# Dipakai sebagai COLOR vertex terrain; _ground_color dipakai warna bilah rumput.
+func _ground_mask(x: float, z: float) -> Color:
+	match get_ground_type(x, z):
+		GroundType.ROCK:
+			return Color(0.0, 0.0, 1.0)
+		GroundType.DIRT:
+			return Color(1.0, 0.0, 0.0)
+		_:
+			return Color(0.0, 1.0, 0.0)
 
 
 # --- Langit, matahari, kabut ---
@@ -153,7 +171,7 @@ func _create_terrain() -> void:
 			var h := get_height(x, z)
 			verts.append(Vector3(x, h, z))
 			normals.append(Vector3.UP)
-			colors.append(_ground_color(x, z))
+			colors.append(_ground_mask(x, z))
 			heights.append(h)
 	for j in SUBDIV:
 		for i in SUBDIV:
@@ -183,10 +201,14 @@ func _create_terrain() -> void:
 	add_child(body)
 	var mesh_instance := MeshInstance3D.new()
 	mesh_instance.mesh = mesh
-	var mat := StandardMaterial3D.new()
-	mat.vertex_color_use_as_albedo = true
-	mat.roughness = 1.0
-	mesh_instance.material_override = mat
+	# Material shader bertekstur (bukan warna vertex polos): sampling
+	# tekstur CC0 Poly Haven per jenis tanah, mask dari COLOR vertex.
+	terrain_material = ShaderMaterial.new()
+	terrain_material.shader = load("res://shaders/terrain.gdshader")
+	terrain_material.set_shader_parameter("grass_tex", load("res://assets/textures/leafy_grass_diff_1k.jpg"))
+	terrain_material.set_shader_parameter("dirt_tex", load("res://assets/textures/dirt_floor_diff_1k.jpg"))
+	terrain_material.set_shader_parameter("rock_tex", load("res://assets/textures/rock_face_diff_1k.jpg"))
+	mesh_instance.material_override = terrain_material
 	body.add_child(mesh_instance)
 	var shape := HeightMapShape3D.new()
 	shape.map_width = SUBDIV + 1
@@ -203,16 +225,55 @@ func _create_terrain() -> void:
 
 func _create_water() -> void:
 	# Shader + material + normal map dari paket CC0 godotlearning
-	# "Stylized Water" (res://water/). Plane 20 m, verteks tiap 0.25 m
-	# (subdivide 80) — sesuai petunjuk halaman itu. Node jangan di-rotate
-	# atau di-scale, ukur lewat PlaneMesh.
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(LAKE_RADIUS * 2.0 + 2.0, LAKE_RADIUS * 2.0 + 2.0)
-	plane.subdivide_width = 80
-	plane.subdivide_depth = 80
+	# "Stylized Water" (res://water/). BUKAN plane kotak lagi — mesh cakram
+	# kustom (grid polar: 20 ring x 64 segmen) yang tepinya mengikuti jari-jari
+	# danau yang berombak (radius * 1.1 + 0.5, masuk ke bawah tanah) — jadi
+	# tidak ada garis lurus di tepi danau (minta Bagus 2026-11-09).
+	# Ring rapat (jarak ~0.6 m) supaya gelombang vertex shader tetap kelihatan.
+	var rings := 20
+	var segs := 64
+	var verts := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var tangents := PackedFloat32Array()
+	var uvs := PackedVector2Array()
+	var indices := PackedInt32Array()
+	# Titik tengah.
+	verts.append(Vector3.ZERO)
+	normals.append(Vector3.UP)
+	tangents.append_array([1.0, 0.0, 0.0, 1.0])
+	uvs.append(Vector2.ZERO)
+	for ring in rings:
+		var f := float(ring + 1) / float(rings)
+		for s in segs:
+			var angle := TAU * float(s) / float(segs)
+			var r := _lake_radius_at(angle) * 1.1 + 0.5
+			var rr := r * f
+			verts.append(Vector3(cos(angle) * rr, 0.0, sin(angle) * rr))
+			normals.append(Vector3.UP)
+			tangents.append_array([1.0, 0.0, 0.0, 1.0])
+			uvs.append(Vector2(cos(angle) * rr, sin(angle) * rr) / 8.0)
+	# Kipas tengah (pusat -> ring 1).
+	for s in segs:
+		indices.append_array([0, 1 + s, 1 + (s + 1) % segs])
+	# Quad antar ring.
+	for ring in rings - 1:
+		var base0 := 1 + ring * segs
+		var base1 := 1 + (ring + 1) * segs
+		for s in segs:
+			var s1 := (s + 1) % segs
+			indices.append_array([base0 + s, base1 + s, base1 + s1, base0 + s, base1 + s1, base0 + s1])
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_TANGENT] = tangents
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var disc := ArrayMesh.new()
+	disc.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	var water := MeshInstance3D.new()
 	water.name = "Water"
-	water.mesh = plane
+	water.mesh = disc
 	water.position = Vector3(LAKE_CENTER.x, WATER_LEVEL, LAKE_CENTER.y)
 	water.material_override = load("res://water/water_material.tres")
 	add_child(water)
@@ -315,128 +376,3 @@ func _create_grass() -> void:
 	# bikin helai kelihatan makin kaku, dan hemat GPU.
 	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mmi)
-
-
-# --- Pohon ---
-
-func _make_tree() -> KiranaTree:
-	var tree := KiranaTree.new()
-	var collision := CollisionShape3D.new()
-	collision.name = "CollisionShape3D"
-	var shape := CylinderShape3D.new()
-	shape.radius = 0.35
-	shape.height = 2.0
-	collision.shape = shape
-	collision.position.y = 1.0
-	tree.add_child(collision)
-	var pivot := Node3D.new()
-	pivot.name = "Pivot"
-	tree.add_child(pivot)
-	var trunk := MeshInstance3D.new()
-	var trunk_mesh := CylinderMesh.new()
-	trunk_mesh.top_radius = 0.22
-	trunk_mesh.bottom_radius = 0.35
-	trunk_mesh.height = 2.2
-	trunk.mesh = trunk_mesh
-	trunk.position.y = 1.1
-	var trunk_mat := StandardMaterial3D.new()
-	trunk_mat.albedo_color = Color(0.42, 0.28, 0.15)
-	trunk_mat.roughness = 1.0
-	trunk.material_override = trunk_mat
-	pivot.add_child(trunk)
-	var leaf_mat := StandardMaterial3D.new()
-	leaf_mat.albedo_color = Color(0.16, 0.42, 0.14)
-	leaf_mat.roughness = 1.0
-	for pos in [Vector3(0.0, 2.9, 0.0), Vector3(0.45, 3.6, 0.2), Vector3(-0.4, 3.5, -0.25)]:
-		var leaf := MeshInstance3D.new()
-		var leaf_mesh := SphereMesh.new()
-		leaf_mesh.radius = 1.25 if pos.y < 3.0 else 0.9
-		leaf_mesh.height = leaf_mesh.radius * 2.0
-		leaf.mesh = leaf_mesh
-		leaf.position = pos
-		leaf.material_override = leaf_mat
-		pivot.add_child(leaf)
-	var stump := MeshInstance3D.new()
-	var stump_mesh := CylinderMesh.new()
-	stump_mesh.top_radius = 0.3
-	stump_mesh.bottom_radius = 0.34
-	stump_mesh.height = 0.4
-	stump.mesh = stump_mesh
-	stump.position.y = 0.2
-	var stump_mat := StandardMaterial3D.new()
-	stump_mat.albedo_color = Color(0.5, 0.36, 0.2)
-	stump_mat.roughness = 1.0
-	stump.material_override = stump_mat
-	tree.add_child(stump)
-	return tree
-
-
-func _create_trees() -> void:
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 99
-	var placed := 0
-	var guard := 0
-	var half := WORLD_SIZE * 0.5 - 3.0
-	while placed < TREE_COUNT and guard < TREE_COUNT * 40:
-		guard += 1
-		var x := rng.randf_range(-half, half)
-		var z := rng.randf_range(-half, half)
-		if get_ground_type(x, z) != GroundType.GRASS:
-			continue
-		if Vector2(x, z).distance_to(Vector2(0.0, 6.0)) < 4.0:
-			continue
-		var ok := true
-		for other in trees:
-			if Vector2(x, z).distance_to(Vector2(other.position.x, other.position.z)) < 3.0:
-				ok = false
-				break
-		if not ok:
-			continue
-		var tree := _make_tree()
-		tree.position = Vector3(x, get_height(x, z), z)
-		add_child(tree)
-		trees.append(tree)
-		placed += 1
-
-
-# --- Bebatuan ---
-
-func _create_boulders() -> void:
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 55
-	var rock_mat := StandardMaterial3D.new()
-	rock_mat.albedo_color = Color(0.42, 0.40, 0.39)
-	rock_mat.roughness = 0.95
-	var placed := 0
-	var guard := 0
-	var half := WORLD_SIZE * 0.5 - 3.0
-	while placed < BOULDER_COUNT and guard < BOULDER_COUNT * 30:
-		guard += 1
-		var x := rng.randf_range(-half, half)
-		var z := rng.randf_range(-half, half)
-		if get_height(x, z) < WATER_LEVEL + 0.1:
-			continue
-		if Vector2(x, z).distance_to(Vector2(0.0, 6.0)) < 4.0:
-			continue
-		var scale := rng.randf_range(0.6, 2.2)
-		var body := StaticBody3D.new()
-		body.position = Vector3(x, get_height(x, z) + scale * 0.25, z)
-		body.rotation.y = rng.randf() * TAU
-		add_child(body)
-		var mesh_instance := MeshInstance3D.new()
-		var mesh := SphereMesh.new()
-		mesh.radius = 1.0
-		mesh.height = 2.0
-		mesh.radial_segments = 12
-		mesh.rings = 8
-		mesh_instance.mesh = mesh
-		mesh_instance.scale = Vector3(scale, scale * 0.7, scale * rng.randf_range(0.8, 1.2))
-		mesh_instance.material_override = rock_mat
-		body.add_child(mesh_instance)
-		var collision := CollisionShape3D.new()
-		var shape := SphereShape3D.new()
-		shape.radius = 1.0
-		collision.shape = shape
-		collision.scale = mesh_instance.scale
-		body.add_child(collision)
-		placed += 1

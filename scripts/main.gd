@@ -54,8 +54,6 @@ func _run_world_test() -> void:
 	if _world == null:
 		failures.append("world null")
 	else:
-		if _world.trees.size() < 10:
-			failures.append("pohon kurang: %d" % _world.trees.size())
 		var grass := _world.get_node_or_null("Grass")
 		if grass == null or grass.multimesh.instance_count < 1000:
 			failures.append("rumput kurang/tidak ada")
@@ -82,14 +80,17 @@ func _run_world_test() -> void:
 			failures.append("batu kebanyakan: %d/400" % counts[2])
 		if float(counts[0]) / 400.0 < 0.4:
 			failures.append("rumput kesedikit: %d/400" % counts[0])
-		# Tebang satu pohon sampai roboh (logika pohon tetap hidup, walau
-		# tanpa pemain yang menebang).
-		var tree = _world.trees[0]
-		tree.chop(Vector3(0.0, 9.0, 20.0))
-		tree.chop(Vector3(0.0, 9.0, 20.0))
-		tree.chop(Vector3(0.0, 9.0, 20.0))
-		if not tree.fallen:
-			failures.append("pohon tidak roboh setelah 3 tebasan")
+		# Danau bertepi berombak: jari-jari di dua sudut harus beda jelas
+		# (tidak ada garis lurus di tepi).
+		var r0: float = _world._lake_radius_at(0.0)
+		var r1: float = _world._lake_radius_at(PI * 0.5)
+		if absf(r0 - r1) < 1.0:
+			failures.append("tepi danau kurang berombak: r0=%f r1=%f" % [r0, r1])
+		# Terrain bertekstur: material shader + 3 tekstur terpasang.
+		if _world.terrain_material == null:
+			failures.append("material terrain null")
+		elif _world.terrain_material.get_shader_parameter("grass_tex") == null:
+			failures.append("tekstur rumput terrain tidak terpasang")
 		# Kamera terbang: ada, aktif, dan bisa gerak.
 		var cam := get_tree().get_first_node_in_group("fly_camera")
 		if cam == null:
