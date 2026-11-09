@@ -31,6 +31,13 @@ func _ready() -> void:
 	var label := Label.new()
 	label.text = "LIGHT OF KIRANA — mode kamera | Joystick/WASD gerak, NAIK/TURUN, CEPAT, drag kanan lihat-lihat"
 	label.position = Vector2(16, 16)
+	var label_bg := StyleBoxFlat.new()
+	label_bg.bg_color = Color(0.0, 0.0, 0.0, 0.45)
+	label_bg.content_margin_left = 8.0
+	label_bg.content_margin_right = 8.0
+	label_bg.content_margin_top = 4.0
+	label_bg.content_margin_bottom = 4.0
+	label.add_theme_stylebox_override("normal", label_bg)
 	layer.add_child(label)
 
 

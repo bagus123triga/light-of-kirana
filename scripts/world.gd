@@ -157,7 +157,10 @@ func _create_terrain() -> void:
 			var b := a + 1
 			var c := a + SUBDIV + 1
 			var d := c + 1
-			indices.append_array([a, c, b, b, c, d])
+			# Urutan segitiga [a,b,c, b,d,c] — generate_normals() memberi
+			# normal ke ATAS untuk urutan ini; [a,c,b] terbalik (normal
+			# ke bawah, tanah cuma kena ambient → putih di tablet).
+			indices.append_array([a, b, c, b, d, c])
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
@@ -214,7 +217,10 @@ func _create_water() -> void:
 # --- Rumput (hanya di tanah berumput, bukan tanah gundul / batu) ---
 
 func _blade_mesh() -> ArrayMesh:
-	# 2 quad menyilang, meruncing ke ujung. UV.y = 0 di ujung, 1 di pangkal.
+	# 2 quad menyilang (bukan segitiga!) — shader gameidea mengharapkan
+	# quad penuh: UV.x 0..1 selebar bilah, UV.y = 0 di ujung, 1 di pangkal,
+	# biar discard-nya membentuk bilah yang meruncing. Segitiga tunggal
+	# bikin rumput kelihatan seperti duri kuning di tablet.
 	var verts := PackedVector3Array()
 	var uvs := PackedVector2Array()
 	var indices := PackedInt32Array()
@@ -226,10 +232,11 @@ func _blade_mesh() -> ArrayMesh:
 	for q in quads:
 		var bl: Vector3 = q[0]
 		var br: Vector3 = q[1]
-		verts.append_array([bl, br, Vector3(0.0, 0.7, 0.0)])
-		uvs.append_array([Vector2(0.0, 1.0), Vector2(1.0, 1.0), Vector2(0.5, 0.0)])
-		indices.append_array([base + 0, base + 1, base + 2])
-		base += 3
+		# Kiri-bawah, kanan-bawah, kanan-atas (ujung), kiri-atas (ujung).
+		verts.append_array([bl, br, br + Vector3(0.0, 0.7, 0.0), bl + Vector3(0.0, 0.7, 0.0)])
+		uvs.append_array([Vector2(0.0, 1.0), Vector2(1.0, 1.0), Vector2(1.0, 0.0), Vector2(0.0, 0.0)])
+		indices.append_array([base + 0, base + 1, base + 2, base + 0, base + 2, base + 3])
+		base += 4
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
