@@ -115,6 +115,7 @@ var jump_timer := 0.0
 var jump_crouch := 0.0
 var run_jump_phase := 0.0
 var jump_from_run := false
+var run_jump_lead_foot := 0
 
 
 func _orange_material() -> StandardMaterial3D:
@@ -367,6 +368,9 @@ func _physics_process(delta: float) -> void:
 			jump_timer = 0.16
 			jump_from_run = is_running
 			run_jump_phase = 0.0
+			if jump_from_run:
+				var jump_forward := Vector3(sin(facing_yaw), 0.0, cos(facing_yaw))
+				run_jump_lead_foot = 0 if foot_planted_pos[0].dot(jump_forward) > foot_planted_pos[1].dot(jump_forward) else 1
 			# Cancel any step in progress: a foot mid-swing to a
 			# far-ahead (1.1 m run) target would land way in front
 			# while the body is airborne, and the body would come
@@ -420,8 +424,9 @@ func _physics_process(delta: float) -> void:
 				# Extend the feet toward the floor as contact happens; the hip
 				# absorbs the impact instead of leaving the legs tucked and weightless.
 				land_from[i] = foot_planted_pos[i]
-				land_from[i].y = minf(land_from[i].y, 0.18)
-				var run_jump_landing_offset := sin(run_jump_phase) * 0.34 * (-1.0 if i == 0 else 1.0) if jump_from_run else 0.0
+				land_from[i].y = maxf(land_from[i].y, 0.05)
+				var run_jump_landing_side := 1.0 if i != run_jump_lead_foot else -1.0
+				var run_jump_landing_offset := sin(run_jump_phase) * 0.30 * run_jump_landing_side if jump_from_run else 0.0
 				land_target[i] = global_position + wish_dir * 0.25 + fwd0 * run_jump_landing_offset + rgt0 * side0 * STEP_LATERAL + fwd0 * 0.05
 				land_target[i].y = 0.05
 			land_t = 0.0
@@ -430,7 +435,7 @@ func _physics_process(delta: float) -> void:
 		jump_timer -= delta
 		if jump_timer <= 0.0:
 			jump_state = 0
-	var crouch_target := 0.22 if jump_state == 1 else (0.14 if jump_state == 3 else 0.0)
+	var crouch_target := 0.22 if jump_state == 1 else (0.07 if jump_state == 3 else 0.0)
 	jump_crouch = move_toward(jump_crouch, crouch_target, delta * (2.0 if jump_state == 1 else (2.2 if jump_state == 3 else 0.9)))
 
 	# Brake while pressing down and while absorbing the landing: the
@@ -602,7 +607,7 @@ func _physics_process(delta: float) -> void:
 	# A foot that starts a step mid-blend is left alone (the step's
 	# from-position picks up wherever the foot currently is).
 	if jump_state == 3:
-		land_t += delta / 0.10
+		land_t += delta / 0.18
 		var lt := _smoothstep(land_t)
 		for i in 2:
 			if not foot_stepping[i]:
@@ -615,7 +620,8 @@ func _physics_process(delta: float) -> void:
 	if not on_floor_now:
 		for i in 2:
 			var jump_side := -1.0 if i == 0 else 1.0
-			var run_jump_air_offset := sin(run_jump_phase) * 0.34 * jump_side if jump_from_run and jump_state == 2 else 0.0
+			var run_jump_air_side := 1.0 if i != run_jump_lead_foot else -1.0
+			var run_jump_air_offset := sin(run_jump_phase) * 0.38 * run_jump_air_side if jump_from_run and jump_state == 2 else 0.0
 			var tuck := hip_global + Vector3(0, -0.89, 0) + forward * run_jump_air_offset + right * jump_side * 0.09
 			foot_planted_pos[i] = foot_planted_pos[i].lerp(tuck, clampf(delta * 8.0, 0.0, 1.0))
 		_was_airborne = true
