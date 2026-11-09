@@ -294,9 +294,11 @@ func _physics_process(delta: float) -> void:
 	speed_smooth = move_toward(speed_smooth, speed, (6.0 if speed > speed_smooth else 8.0) * delta)
 	speed = speed_smooth
 	var moving := speed > 0.05
-	if moving:
+	# Preserve the last heading on release; atan2(0, 0) resets to world +Z.
+	# Limit yaw speed so a sharp reversal is a grounded pivot, not a spin.
+	if wish_dir.length() > 0.05:
 		var target_yaw := atan2(wish_dir.x, wish_dir.z)
-		facing_yaw = lerp_angle(facing_yaw, target_yaw, clampf(delta * 10.0, 0.0, 1.0))
+		facing_yaw = rotate_toward(facing_yaw, target_yaw, delta * 3.5)
 	rotation.y = facing_yaw
 
 	# --- Procedural jump: crouch -> launch -> land (Bagus, 2026-11-09) ---
@@ -444,7 +446,9 @@ func _physics_process(delta: float) -> void:
 		# the body turns, a planted foot can end up on the other side
 		# of the body. The foot then takes a short recovery step back
 		# to its own side instead of staying crossed.
-		if not foot_stepping[i] and on_floor_now and (jump_state == 0 or jump_state == 3) and _is_crossed(i, right):
+		# Keep the opposite foot planted while recovering a crossed foot.
+		# Do not lift both feet during a pivot or reversal.
+		if not foot_stepping[i] and not foot_stepping[1 - i] and on_floor_now and jump_state == 0 and _is_crossed(i, right):
 			_start_recovery_step(i, right, forward)
 		if foot_stepping[i]:
 			foot_step_t[i] += delta / swing
@@ -488,7 +492,9 @@ func _physics_process(delta: float) -> void:
 			# right average cadence it LOOKED like shuffling fast feet.
 			# 75% + the longer 0.40 s swing evens the rhythm to
 			# ~2.9 steps/s with a real ~0.3 s stance per foot.
-			var gate := (not other_stepping) or (is_running and foot_step_t[1 - i] > RUN_GATE)
+			# During a sharp turn keep a support foot down even at run speed.
+			var turning_sharply := wish_dir.length() > 0.05 and forward.dot(wish_dir.normalized()) < 0.7
+			var gate := (not other_stepping) or (is_running and not turning_sharply and foot_step_t[1 - i] > RUN_GATE)
 			if (moving and lag > 0.15 and gate) or (not moving and lag > 0.25 and not other_stepping):
 				# Predict the body position at touchdown and place the foot a
 				# small distance ahead of it. RUN_STRIDE is total step reach,
@@ -512,7 +518,7 @@ func _physics_process(delta: float) -> void:
 	# even right after a toe-off — the run test's leftover flight
 	# timer was blocking the first turn frames.)
 	for i in 2:
-		if not foot_stepping[i] and on_floor_now and (jump_state == 0 or jump_state == 3) and _is_crossed(i, right):
+		if not foot_stepping[i] and not foot_stepping[1 - i] and on_floor_now and jump_state == 0 and _is_crossed(i, right):
 			_start_recovery_step(i, right, forward)
 
 	# Landing blend (state 3): feet glide from the tuck to their plant
