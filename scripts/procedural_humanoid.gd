@@ -116,6 +116,8 @@ var jump_crouch := 0.0
 var run_jump_phase := 0.0
 var jump_from_run := false
 var run_jump_lead_foot := 0
+# Smoothly blend into the belly-down freefall pose instead of snapping.
+var fall_pose_blend := 0.0
 
 
 func _orange_material() -> StandardMaterial3D:
@@ -475,6 +477,9 @@ func _physics_process(delta: float) -> void:
 	speed_factor = clampf(speed / maxf(speed_max, 0.01), 0.0, 1.0)
 	moving = speed > 0.05
 	var on_floor_now := test_mode or is_on_floor()
+	var fall_pose_target := 1.0 if not on_floor_now and jump_state != 2 else 0.0
+	fall_pose_blend = move_toward(fall_pose_blend, fall_pose_target, delta / 0.38)
+	var fall_pose_weight := _smoothstep(fall_pose_blend)
 	var forward := Vector3(sin(facing_yaw), 0, cos(facing_yaw))
 	var right := Vector3(cos(facing_yaw), 0, -sin(facing_yaw))
 	var hip_global := body_root.global_position
@@ -644,11 +649,13 @@ func _physics_process(delta: float) -> void:
 				# Lift the legs behind the pelvis; the torso pitch makes the head
 				# dip below the hips for a proper belly-down dive silhouette.
 				airborne_target = hip_global + Vector3(0, 0.18, 0) - forward * 0.58 + right * jump_side * 0.14
+				# Ease both ankles from their last planted positions into the
+				# trailing wingsuit pose over the same transition as the torso.
 				foot_stepping[i] = false
 				foot_step_t[i] = 0.0
-				foot_planted_pos[i] = airborne_target
-				foot_target_pos[i] = airborne_target
-				foot_from_pos[i] = airborne_target
+				foot_planted_pos[i] = foot_planted_pos[i].lerp(airborne_target, clampf(delta * 5.0, 0.0, 1.0))
+				foot_target_pos[i] = foot_planted_pos[i]
+				foot_from_pos[i] = foot_planted_pos[i]
 		_was_airborne = true
 	elif _was_airborne:
 		# No hip-velocity kick here anymore (Bagus, 2026-11-09): the
@@ -723,9 +730,13 @@ func _physics_process(delta: float) -> void:
 	var is_gliding_fall := not on_floor_now and jump_state != 2
 	# Rotate the torso/head forward into a prone, belly-down wingsuit pose.
 	# Blend into/out of the pose so stepping off an edge does not snap.
-	var body_pitch_target := 1.72 if is_gliding_fall else speed_factor * forward_lean
-	body_root.rotation.x = lerp_angle(body_root.rotation.x, body_pitch_target, clampf(delta * 4.5, 0.0, 1.0))
-	body_root.rotation.z = sin(time_alive * 2.2) * 0.035 if is_gliding_fall else sin(gait_phase) * 0.02 * speed_factor
+	var normal_body_pitch := speed_factor * forward_lean
+	var fall_body_pitch := 1.72
+	var body_pitch_target := lerpf(normal_body_pitch, fall_body_pitch, fall_pose_weight)
+	body_root.rotation.x = lerp_angle(body_root.rotation.x, body_pitch_target, clampf(delta * 7.0, 0.0, 1.0))
+	var normal_body_roll := sin(gait_phase) * 0.02 * speed_factor
+	var fall_body_roll := sin(time_alive * 2.2) * 0.035
+	body_root.rotation.z = lerpf(normal_body_roll, fall_body_roll, fall_pose_weight)
 	hip_global = body_root.global_position
 
 	# Heel lift / push-off (Bagus, 2026-11-09 — "tekanan lebih gede"):
@@ -791,26 +802,15 @@ func _physics_process(delta: float) -> void:
 	# Walking uses a restrained arm swing; running gets a stronger counter-swing.
 	var arm_swing := 0.30 if not is_running else 0.48
 	var swing_amount := sin(gait_phase) * arm_swing * speed_factor
-	if is_gliding_fall:
-		# Wingsuit-like fall: arms open sideways, with a gentle cyclic
-		# adjustment so the pose feels aerodynamic instead of frozen.
-		var wing_flex := sin(time_alive * 2.4) * 0.045
-		shoulder_l.rotation.x = -0.12 + wing_flex
-		shoulder_r.rotation.x = -0.12 - wing_flex
-		shoulder_l.rotation.z = -1.28
-		shoulder_r.rotation.z = 1.28
-		elbow_l.rotation.x = -0.12
-		elbow_r.rotation.x = -0.12
-		wrist_l.rotation.x = 0.08
-		wrist_r.rotation.x = 0.08
-	else:
-		shoulder_l.rotation.x = swing_amount
-		shoulder_r.rotation.x = -swing_amount
-		# Slight outward angle keeps the arms clear of the torso.
-		shoulder_l.rotation.z = -0.12
-		shoulder_r.rotation.z = 0.12
-		var elbow_bend := 0.4 + absf(swing_amount) * 0.3 + jump_crouch * 1.5
-		elbow_l.rotation.x = -elbow_bend
-		elbow_r.rotation.x = -elbow_bend
-		wrist_l.rotation.x = elbow_bend * 0.5
-		wrist_r.rotation.x = elbow_bend * 0.5
+	# Normal locomotion pose and wingsuit pose are blended continuously.
+	# This keeps shoulders, elbows and wrists from popping on edge departure.
+	var wing_flex := sin(time_alive * 2.4) * 0.045
+	var elbow_bend := 0.4 + absf(swing_amount) * 0.3 + jump_crouch * 1.5
+	shoulder_l.rotation.x = lerpf(swing_amount, -0.12 + wing_flex, fall_pose_weight)
+	shoulder_r.rotation.x = lerpf(-swing_amount, -0.12 - wing_flex, fall_pose_weight)
+	shoulder_l.rotation.z = lerpf(-0.12, -1.28, fall_pose_weight)
+	shoulder_r.rotation.z = lerpf(0.12, 1.28, fall_pose_weight)
+	elbow_l.rotation.x = lerpf(-elbow_bend, -0.12, fall_pose_weight)
+	elbow_r.rotation.x = lerpf(-elbow_bend, -0.12, fall_pose_weight)
+	wrist_l.rotation.x = lerpf(elbow_bend * 0.5, 0.08, fall_pose_weight)
+	wrist_r.rotation.x = lerpf(elbow_bend * 0.5, 0.08, fall_pose_weight)
