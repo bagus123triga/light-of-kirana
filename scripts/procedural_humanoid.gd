@@ -79,8 +79,6 @@ var speed_smooth := 0.0
 # This prevents instant direction changes and hard stops while the
 # feet are still completing their current swing.
 var horizontal_motion := Vector3.ZERO
-var previous_wish_dir := Vector3.ZERO
-var was_moving := false
 
 var body_root: Node3D
 var shoulder_l: Node3D
@@ -296,15 +294,6 @@ func _physics_process(delta: float) -> void:
 	speed_smooth = move_toward(speed_smooth, speed, (6.0 if speed > speed_smooth else 8.0) * delta)
 	speed = speed_smooth
 	var moving := speed > 0.05
-	var turn_retarget := false
-	if wish_dir.length() > 0.05:
-		var current_wish_dir := wish_dir.normalized()
-		if previous_wish_dir.length() > 0.05:
-			turn_retarget = previous_wish_dir.dot(current_wish_dir) < cos(deg_to_rad(35.0))
-		previous_wish_dir = current_wish_dir
-	else:
-		previous_wish_dir = Vector3.ZERO
-
 	if moving:
 		var target_yaw := atan2(wish_dir.x, wish_dir.z)
 		facing_yaw = lerp_angle(facing_yaw, target_yaw, clampf(delta * 10.0, 0.0, 1.0))
@@ -434,26 +423,6 @@ func _physics_process(delta: float) -> void:
 	var stride := clampf(speed * (0.32 if not is_running else 0.52), 0.18, stride_max)
 	var swing := RUN_SWING if is_running else (clampf(stride / maxf(speed, 0.5), 0.16, SWING_TIME) if moving else SWING_TIME)
 
-	# Re-aim feet that are already in the air when the player turns.
-	# Keep their current swing progress and current foot position; only
-	# redirect the landing target, avoiding a snap or a stale old heading.
-	if turn_retarget and moving:
-		for i in 2:
-			if foot_stepping[i]:
-				var turn_side := -1.0 if i == 0 else 1.0
-				foot_target_pos[i] = global_position + wish_dir.normalized() * stride + right * turn_side * STEP_LATERAL + forward * 0.05
-				foot_target_pos[i].y = 0.05
-
-	# When movement settles to idle, bring any active swing back under
-	# the body instead of letting it finish at the old forward stride.
-	if was_moving and not moving:
-		for i in 2:
-			if foot_stepping[i]:
-				var stop_side := -1.0 if i == 0 else 1.0
-				foot_target_pos[i] = global_position + right * stop_side * STEP_LATERAL + forward * 0.05
-				foot_target_pos[i].y = 0.05
-	was_moving = moving
-
 	# Push-off lift (run): flight_timer is now set when a foot TOES OFF
 	# (starts its swing) while the other foot is also in the air — the
 	# brief moment both feet are off the ground, when the hip rises
@@ -474,6 +443,17 @@ func _physics_process(delta: float) -> void:
 			_start_recovery_step(i, right, forward)
 		if foot_stepping[i]:
 			foot_step_t[i] += delta / swing
+			# Predict where the body will actually be when this swing ends.
+			# Recompute the landing point EVERY physics frame: a one-time
+			# target goes stale during turns and while accelerating/braking,
+			# making the body run past the foot before it can land.
+			var swing_remaining := swing * (1.0 - clampf(foot_step_t[i], 0.0, 1.0))
+			var step_forward := horizontal_motion.normalized() if speed > 0.05 else forward
+			var step_right := Vector3(step_forward.z, 0.0, -step_forward.x)
+			var landing_lead := clampf(stride - speed * swing, 0.08, 0.45)
+			var swing_side := -1.0 if i == 0 else 1.0
+			foot_target_pos[i] = global_position + horizontal_motion * swing_remaining + step_forward * (landing_lead + 0.05) + step_right * swing_side * STEP_LATERAL
+			foot_target_pos[i].y = 0.05
 			var t := _smoothstep(foot_step_t[i])
 			var pos := foot_from_pos[i].lerp(foot_target_pos[i], t)
 			var clearance := FOOT_CLEARANCE if not is_running else RUN_FOOT_CLEARANCE
@@ -495,7 +475,9 @@ func _physics_process(delta: float) -> void:
 				foot_planted_pos[i].y = 0.05
 				steps_taken += 1
 		elif on_floor_now and flight_timer <= 0.0 and (jump_state == 0 or jump_state == 3):
-			var ideal := global_position + wish_dir * stride * LAND_BIAS + right * side * STEP_LATERAL + forward * 0.05
+			var step_forward := horizontal_motion.normalized() if speed > 0.05 else forward
+			var step_right := Vector3(step_forward.z, 0.0, -step_forward.x)
+			var ideal := global_position + step_forward * stride * LAND_BIAS + step_right * side * STEP_LATERAL + step_forward * 0.05
 			ideal.y = 0.05
 			var lag := (ideal - foot_planted_pos[i]).dot(forward) if moving else (ideal - foot_planted_pos[i]).length()
 			var other_stepping := foot_stepping[1 - i]
@@ -508,7 +490,13 @@ func _physics_process(delta: float) -> void:
 			# ~2.9 steps/s with a real ~0.3 s stance per foot.
 			var gate := (not other_stepping) or (is_running and foot_step_t[1 - i] > RUN_GATE)
 			if (moving and lag > 0.15 and gate) or (not moving and lag > 0.25 and not other_stepping):
-				var target := global_position + wish_dir * stride + right * side * STEP_LATERAL + forward * 0.05
+				# Predict the body position at touchdown and place the foot a
+				# small distance ahead of it. RUN_STRIDE is total step reach,
+				# not a fixed world-space point the body can run past.
+				var step_forward := horizontal_motion.normalized() if speed > 0.05 else forward
+				var step_right := Vector3(step_forward.z, 0.0, -step_forward.x)
+				var landing_lead := clampf(stride - speed * swing, 0.08, 0.45)
+				var target := global_position + horizontal_motion * swing + step_forward * (landing_lead + 0.05) + step_right * side * STEP_LATERAL
 				target.y = 0.05
 				foot_from_pos[i] = foot_planted_pos[i]
 				foot_target_pos[i] = target
@@ -586,7 +574,7 @@ func _physics_process(delta: float) -> void:
 		var p: Vector3
 		if foot_stepping[i]:
 			var remain := swing * (1.0 - foot_step_t[i])
-			var body_at_land := global_position + wish_dir * speed * remain
+			var body_at_land := global_position + horizontal_motion * remain
 			p = foot_target_pos[i] - body_at_land
 		else:
 			p = foot_planted_pos[i] - global_position
