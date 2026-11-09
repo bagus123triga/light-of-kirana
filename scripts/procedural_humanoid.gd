@@ -188,6 +188,15 @@ func _ready() -> void:
 		var shoulder := Node3D.new()
 		shoulder.position = Vector3(side * 0.20, 0.5, 0)
 		body_root.add_child(shoulder)
+		# Small shoulder cap bridges the torso and upper arm so the limb
+		# visibly connects at the joint instead of looking detached.
+		var shoulder_cap := MeshInstance3D.new()
+		var shoulder_cap_mesh := SphereMesh.new()
+		shoulder_cap_mesh.radius = 0.055
+		shoulder_cap_mesh.height = 0.11
+		shoulder_cap.mesh = shoulder_cap_mesh
+		shoulder_cap.material_override = mat
+		shoulder.add_child(shoulder_cap)
 		var upper := _limb(0.043, ARM_UPPER, mat)
 		upper.position = Vector3(0, -ARM_UPPER * 0.5, 0)
 		shoulder.add_child(upper)
@@ -733,10 +742,10 @@ func _physics_process(delta: float) -> void:
 	var swing_amount := sin(gait_phase) * arm_swing * speed_factor
 	shoulder_l.rotation.x = swing_amount
 	shoulder_r.rotation.x = -swing_amount
-	# Keep both arms hanging vertically with a small natural gap from the torso.
-	# No outward shoulder roll: it made the hands look detached and slanted.
-	shoulder_l.rotation.z = 0.0
-	shoulder_r.rotation.z = 0.0
+	# Slight outward angle keeps the arms clear of the torso; shoulder caps
+	# now visually bridge the joint so the upper arms remain attached.
+	shoulder_l.rotation.z = -0.12
+	shoulder_r.rotation.z = 0.12
 	# Elbow: bent ~0.4 rad at rest, flexes a bit more on the forward
 	# swing; wrist keeps the hand roughly level with a small flick.
 	# During the jump crouch the arms pull back with the press.
