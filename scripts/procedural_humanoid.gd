@@ -164,8 +164,8 @@ func _ready() -> void:
 
 	var torso := MeshInstance3D.new()
 	var torso_mesh := CapsuleMesh.new()
-	torso_mesh.radius = 0.17
-	torso_mesh.height = 0.62
+	torso_mesh.radius = 0.13
+	torso_mesh.height = 0.60
 	torso.mesh = torso_mesh
 	torso.material_override = mat
 	torso.position = Vector3(0, 0.28, 0)
@@ -173,8 +173,8 @@ func _ready() -> void:
 
 	var head := MeshInstance3D.new()
 	var head_mesh := SphereMesh.new()
-	head_mesh.radius = 0.13
-	head_mesh.height = 0.26
+	head_mesh.radius = 0.12
+	head_mesh.height = 0.24
 	head.mesh = head_mesh
 	head.material_override = mat
 	head.position = Vector3(0, 0.72, 0)
@@ -186,15 +186,15 @@ func _ready() -> void:
 	var shoulders: Array[Node3D] = []
 	for side in [-1.0, 1.0]:
 		var shoulder := Node3D.new()
-		shoulder.position = Vector3(side * 0.21, 0.5, 0)
+		shoulder.position = Vector3(side * 0.17, 0.5, 0)
 		body_root.add_child(shoulder)
-		var upper := _limb(0.05, ARM_UPPER, mat)
+		var upper := _limb(0.043, ARM_UPPER, mat)
 		upper.position = Vector3(0, -ARM_UPPER * 0.5, 0)
 		shoulder.add_child(upper)
 		var elbow := Node3D.new()
 		elbow.position = Vector3(0, -ARM_UPPER, 0)
 		shoulder.add_child(elbow)
-		var forearm := _limb(0.045, ARM_LOWER, mat)
+		var forearm := _limb(0.04, ARM_LOWER, mat)
 		forearm.position = Vector3(0, -ARM_LOWER * 0.5, 0)
 		elbow.add_child(forearm)
 		var wrist := Node3D.new()
