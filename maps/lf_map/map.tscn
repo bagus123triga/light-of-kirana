@@ -1,0 +1,10 @@
+[gd_scene format=3 uid="uid://csd45ik38v03"]
+
+[ext_resource type="PackedScene" uid="uid://hat7p0au7rvo" path="res://maps/lf_map/tile_0_0.tscn" id="1"]
+[ext_resource type="PackedScene" uid="uid://b0ifcgq312ego" path="res://maps/lf_map/map_edge.tscn" id="2"]
+
+[node name="Map" type="Node3D"]
+
+[node name="Tile_0_0" parent="." instance=ExtResource("1")]
+
+[node name="MapEdge" parent="." instance=ExtResource("2")]

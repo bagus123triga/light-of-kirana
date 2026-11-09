@@ -1,0 +1,7 @@
+[gd_scene format=3 uid="uid://jks06uk4cfpw"]
+
+[ext_resource type="ArrayMesh" uid="uid://jqootb6co1l" path="res://maps/lf_map/shared/dry_bush_0.res" id="1_lqnyt"]
+
+[node name="Dry Bush0" type="MeshInstance3D" unique_id=781373017]
+cast_shadow = 0
+mesh = ExtResource("1_lqnyt")

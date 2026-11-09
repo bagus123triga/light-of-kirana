@@ -1,0 +1,16 @@
+[gd_scene format=3 uid="uid://b14e51sxfjqei"]
+
+[ext_resource type="ArrayMesh" uid="uid://byxrvgb8npg52" path="res://maps/lf_map/shared/willow_2.res" id="1_rowm1"]
+
+[sub_resource type="CylinderShape3D" id="lf_1"]
+height = 4.0
+radius = 0.55
+
+[node name="Willow2" type="StaticBody3D" unique_id=780159897 groups=["tree"]]
+
+[node name="Mesh" type="MeshInstance3D" parent="." unique_id=780159899]
+mesh = ExtResource("1_rowm1")
+
+[node name="Collision" type="CollisionShape3D" parent="." unique_id=780159901]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
+shape = SubResource("lf_1")

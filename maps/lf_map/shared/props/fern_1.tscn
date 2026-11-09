@@ -1,0 +1,7 @@
+[gd_scene format=3 uid="uid://bb56r17o15hbg"]
+
+[ext_resource type="ArrayMesh" uid="uid://don8bec1owjj" path="res://maps/lf_map/shared/fern_1.res" id="1_fnxsk"]
+
+[node name="Fern1" type="MeshInstance3D" unique_id=459157669]
+cast_shadow = 0
+mesh = ExtResource("1_fnxsk")

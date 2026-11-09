@@ -1,0 +1,16 @@
+[gd_scene format=3 uid="uid://x45re64a1dpr"]
+
+[ext_resource type="ArrayMesh" uid="uid://bw5ofwaea1v43" path="res://maps/lf_map/shared/crystal_1.res" id="1_q1a56"]
+
+[sub_resource type="CylinderShape3D" id="lf_1"]
+height = 4.0
+radius = 0.6
+
+[node name="Crystal1" type="StaticBody3D" unique_id=515827261 groups=["tree"]]
+
+[node name="Mesh" type="MeshInstance3D" parent="." unique_id=515827263]
+mesh = ExtResource("1_q1a56")
+
+[node name="Collision" type="CollisionShape3D" parent="." unique_id=515827265]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
+shape = SubResource("lf_1")

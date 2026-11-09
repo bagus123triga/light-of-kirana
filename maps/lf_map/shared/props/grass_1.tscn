@@ -1,0 +1,7 @@
+[gd_scene format=3 uid="uid://bdsds5oljmpuv"]
+
+[ext_resource type="ArrayMesh" uid="uid://bslmdf8f2bkvo" path="res://maps/lf_map/shared/grass_1.res" id="1_lmfg7"]
+
+[node name="Grass1" type="MeshInstance3D" unique_id=534285435]
+cast_shadow = 0
+mesh = ExtResource("1_lmfg7")

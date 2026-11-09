@@ -1,0 +1,7 @@
+[gd_scene format=3 uid="uid://bt4wrpqj1lkgx"]
+
+[ext_resource type="ArrayMesh" uid="uid://brn1g3hchseac" path="res://maps/lf_map/shared/mushroom_1.res" id="1_13wyg"]
+
+[node name="Mushroom1" type="MeshInstance3D" unique_id=967893877]
+cast_shadow = 0
+mesh = ExtResource("1_13wyg")

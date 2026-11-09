@@ -1,0 +1,16 @@
+[gd_scene format=3 uid="uid://b2sawqu5160fk"]
+
+[ext_resource type="ArrayMesh" uid="uid://bhd57mu7atydb" path="res://maps/lf_map/shared/birch_0.res" id="1_1rhd8"]
+
+[sub_resource type="CylinderShape3D" id="lf_1"]
+height = 4.0
+radius = 0.2
+
+[node name="Birch0" type="StaticBody3D" unique_id=1055384801 groups=["tree"]]
+
+[node name="Mesh" type="MeshInstance3D" parent="." unique_id=1055384803]
+mesh = ExtResource("1_1rhd8")
+
+[node name="Collision" type="CollisionShape3D" parent="." unique_id=1055384805]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
+shape = SubResource("lf_1")

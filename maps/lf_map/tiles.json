@@ -1,0 +1,50 @@
+{
+	"edge": "map_edge.tscn",
+	"first_tile": [
+		0,
+		0
+	],
+	"format": 2,
+	"grid": [
+		1,
+		1
+	],
+	"land": "617795809e589abf4ba6af7b6f34a3f8",
+	"land_version": 2,
+	"seed": 1234,
+	"spawn": {
+		"position": [
+			-18.7846069335938,
+			7.93036127090454,
+			10.0
+		],
+		"scene": "tile_0_0.tscn",
+		"tile": [
+			0,
+			0
+		]
+	},
+	"tile_size": 512.0,
+	"tiles": [
+		{
+			"offset": [
+				-256.0,
+				0.0,
+				-256.0
+			],
+			"scene": "tile_0_0.tscn",
+			"world_origin": [
+				384.0,
+				2176.0
+			],
+			"x": 0,
+			"z": 0
+		}
+	],
+	"tiles_x": 1,
+	"tiles_z": 1,
+	"world_center": [
+		640.0,
+		2432.0
+	]
+}

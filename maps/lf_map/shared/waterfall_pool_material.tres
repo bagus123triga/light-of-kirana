@@ -1,0 +1,12 @@
+[gd_resource type="ShaderMaterial" format=3 uid="uid://biaxxasckmvcn"]
+
+[ext_resource type="Shader" path="res://addons/lowland_forge/shaders/waterfall.gdshader" id="1_ji075"]
+
+[resource]
+render_priority = 1
+shader = ExtResource("1_ji075")
+shader_parameter/pool = true
+shader_parameter/water_color = null
+shader_parameter/foam_color = null
+shader_parameter/fall_speed = null
+shader_parameter/opacity = null

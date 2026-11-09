@@ -1,0 +1,16 @@
+[gd_scene format=3 uid="uid://dom8hwsomsjy"]
+
+[ext_resource type="ArrayMesh" uid="uid://frhy7p2u4foj" path="res://maps/lf_map/shared/broad_2.res" id="1_tdwe6"]
+
+[sub_resource type="CylinderShape3D" id="lf_1"]
+height = 4.0
+radius = 0.7
+
+[node name="Broad2" type="StaticBody3D" unique_id=872750339 groups=["tree"]]
+
+[node name="Mesh" type="MeshInstance3D" parent="." unique_id=872750341]
+mesh = ExtResource("1_tdwe6")
+
+[node name="Collision" type="CollisionShape3D" parent="." unique_id=872750343]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
+shape = SubResource("lf_1")

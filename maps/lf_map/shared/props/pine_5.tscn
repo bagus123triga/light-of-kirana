@@ -1,0 +1,16 @@
+[gd_scene format=3 uid="uid://b07y0jd5pbefh"]
+
+[ext_resource type="ArrayMesh" uid="uid://odwx7wljn22o" path="res://maps/lf_map/shared/pine_5.res" id="1_5fwwt"]
+
+[sub_resource type="CylinderShape3D" id="lf_1"]
+height = 4.0
+radius = 0.32
+
+[node name="Pine5" type="StaticBody3D" unique_id=806840715 groups=["tree"]]
+
+[node name="Mesh" type="MeshInstance3D" parent="." unique_id=806840717]
+mesh = ExtResource("1_5fwwt")
+
+[node name="Collision" type="CollisionShape3D" parent="." unique_id=806840719]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
+shape = SubResource("lf_1")

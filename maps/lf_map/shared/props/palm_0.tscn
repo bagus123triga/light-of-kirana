@@ -1,0 +1,16 @@
+[gd_scene format=3 uid="uid://83iicbu7uy31"]
+
+[ext_resource type="ArrayMesh" uid="uid://dmje6jfqihg0" path="res://maps/lf_map/shared/palm_0.res" id="1_r7qyn"]
+
+[sub_resource type="CylinderShape3D" id="lf_1"]
+height = 4.0
+radius = 0.25
+
+[node name="Palm0" type="StaticBody3D" unique_id=550401187 groups=["tree"]]
+
+[node name="Mesh" type="MeshInstance3D" parent="." unique_id=550401189]
+mesh = ExtResource("1_r7qyn")
+
+[node name="Collision" type="CollisionShape3D" parent="." unique_id=550401191]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
+shape = SubResource("lf_1")

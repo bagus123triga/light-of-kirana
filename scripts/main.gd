@@ -1,31 +1,40 @@
 extends Node3D
 
-## LIGHT OF KIRANA — main v5 (REBUILD DARI 0).
-## Entry point: bangun World + Sky + FlyCamera + Ambience.
+## LIGHT OF KIRANA — main v6 (LowLand Forge).
+## Dunia = map hasil bake LowLand Forge (res://maps/lf_map/map.tscn):
+## Classic Island 512 m, seed 1234, 1 tile, 13524 props (pohon, batu, rumput).
+## Langit tetap shader stylized prosedural + siklus hari (scripts/sky.gd).
+## Kamera terbang (scripts/fly_camera.gd), mulai di titik spawn map.
 ## Mode test: `godot --headless --path . -- --world-test`
-## nge-print `WORLD_TEST PASS` kalau semua cek lulus, atau FAIL + alasannya.
-## Cek: chunk rumput, jumlah rumput, laut (barat), pegunungan (utara),
-## danau, jalanan tanah, langit shader, kabut mati, kuil ada.
+## nge-print `WORLD_TEST PASS` kalau map ke-load + spawn ketemu.
 
-const WorldScript := preload("res://scripts/world.gd")
 const SkyScript := preload("res://scripts/sky.gd")
 const FlyCameraScript := preload("res://scripts/fly_camera.gd")
 const AmbienceScript := preload("res://scripts/ambience.gd")
+const MAP_PATH := "res://maps/lf_map/map.tscn"
+const TILES_JSON_PATH := "res://maps/lf_map/tiles.json"
 
 
 func _ready() -> void:
-	var world := Node3D.new()
-	world.name = "World"
-	world.set_script(WorldScript)
-	add_child(world)
+	# Dunia: instance map hasil bake.
+	var map_scene: PackedScene = load(MAP_PATH)
+	var map_instance := map_scene.instantiate()
+	map_instance.name = "LFMap"
+	add_child(map_instance)
+	# Langit stylized + siklus hari.
 	var sky := Node3D.new()
 	sky.name = "Sky"
 	sky.set_script(SkyScript)
 	add_child(sky)
+	# Kamera terbang, mulai di spawn.
 	var camera := Camera3D.new()
 	camera.name = "FlyCamera"
 	camera.set_script(FlyCameraScript)
 	add_child(camera)
+	var spawn_pos := _spawn_position()
+	if spawn_pos != Vector3.ZERO:
+		camera.position = spawn_pos + Vector3(0.0, 9.0, 12.0)
+	# Ambience (angin).
 	var ambience := Node.new()
 	ambience.name = "Ambience"
 	ambience.set_script(AmbienceScript)
@@ -34,70 +43,56 @@ func _ready() -> void:
 		_run_world_test()
 
 
+func _spawn_position() -> Vector3:
+	if not FileAccess.file_exists(TILES_JSON_PATH):
+		return Vector3.ZERO
+	var json_text := FileAccess.get_file_as_string(TILES_JSON_PATH)
+	var data: Dictionary = JSON.parse_string(json_text)
+	if data.is_empty() or not data.has("spawn"):
+		return Vector3.ZERO
+	var spawn: Dictionary = data["spawn"]
+	var pos: Array = spawn.get("position", [])
+	if pos.size() < 3:
+		return Vector3.ZERO
+	return Vector3(float(pos[0]), float(pos[1]), float(pos[2]))
+
+
 func _run_world_test() -> void:
-	var world := get_node("World")
-	var sky := get_node("Sky")
 	var failures: Array[String] = []
-	# 1. Chunk rumput: 6x6 = 36 chunk.
-	var chunk_count: int = world._grass_chunks.size()
-	if chunk_count != 36:
-		failures.append("chunk rumput=%d (mau 36)" % chunk_count)
-	# 2. Jumlah rumput total >= 100000 (target 350k).
-	var total_grass := 0
-	for c in world._grass_chunks:
-		var node: MultiMeshInstance3D = c["node"]
-		total_grass += node.multimesh.instance_count
-	if total_grass < 100000:
-		failures.append("rumput total=%d (mau >=100000)" % total_grass)
-	# 3. Laut (barat, x=-170): tanah di bawah air.
-	if world.get_height(-170.0, 0.0) > WorldScript.WATER_LEVEL:
-		failures.append("laut: get_height(-170,0)=%.2f (mau < %.2f)" % [world.get_height(-170.0, 0.0), WorldScript.WATER_LEVEL])
-	# 4. Pegunungan (utara, z=-185): tinggi.
-	if world.get_height(0.0, -185.0) < 15.0:
-		failures.append("gunung: get_height(0,-185)=%.2f (mau >=15)" % world.get_height(0.0, -185.0))
-	# 5. Danau (60,35): di bawah air.
-	if world.get_height(60.0, 35.0) > WorldScript.WATER_LEVEL:
-		failures.append("danau: get_height(60,35)=%.2f (mau < %.2f)" % [world.get_height(60.0, 35.0), WorldScript.WATER_LEVEL])
-	# 6. Dataran tengah (spawn) datar.
-	if absf(world.get_height(0.0, 0.0)) > 1.5:
-		failures.append("spawn: get_height(0,0)=%.2f (mau |h|<=1.5)" % world.get_height(0.0, 0.0))
-	# 7. Jalanan tanah: titik di jalan = DIRT.
-	if world.get_ground_type(20.0, 12.0) != WorldScript.GroundType.DIRT:
-		failures.append("jalan danau: get_ground_type(20,12) bukan DIRT")
-	if world.get_ground_type(-90.0, 8.0) != WorldScript.GroundType.DIRT:
-		failures.append("jalan pantai: get_ground_type(-90,8) bukan DIRT")
-	# 8. Langit = ShaderMaterial (prosedural, bukan foto).
-	var env: WorldEnvironment = sky._env
-	if env == null or not (env.environment.sky.sky_material is ShaderMaterial):
+	# 1. Map ke-load.
+	var map_node := get_node_or_null("LFMap")
+	if map_node == null:
+		failures.append("map: node LFMap tidak ada")
+	# 2. tiles.json kebaca + spawn ada.
+	var spawn_pos := _spawn_position()
+	if spawn_pos == Vector3.ZERO:
+		failures.append("spawn: tiles.json tidak kebaca / spawn kosong")
+	# 3. Spawn marker (group "spawn") ada di scene.
+	var spawn_marker := get_tree().get_first_node_in_group("spawn")
+	if spawn_marker == null:
+		failures.append("spawn: marker group 'spawn' tidak ketemu")
+	# 4. Terrain (group "terrain") ada.
+	var terrain := get_tree().get_first_node_in_group("terrain")
+	if terrain == null:
+		failures.append("terrain: group 'terrain' tidak ketemu")
+	# 5. Pohon (group "tree") ada.
+	var tree := get_tree().get_first_node_in_group("tree")
+	if tree == null:
+		failures.append("tree: group 'tree' tidak ketemu")
+	# 6. Air (group "water") ada.
+	var water := get_tree().get_first_node_in_group("water")
+	if water == null:
+		failures.append("water: group 'water' tidak ketemu")
+	# 7. Langit = ShaderMaterial (prosedural).
+	var sky := get_node_or_null("Sky")
+	if sky == null or sky._env == null or not (sky._env.environment.sky.sky_material is ShaderMaterial):
 		failures.append("langit: bukan ShaderMaterial")
-	# 9. Kabut mati.
-	if env != null and env.environment.fog_enabled:
+	# 8. Kabut mati.
+	if sky != null and sky._env != null and sky._env.environment.fog_enabled:
 		failures.append("kabut: masih nyala (mau mati)")
-	# 10. Kuil ada.
-	if get_node_or_null("World/Shrine") == null:
-		failures.append("kuil: node Shrine tidak ada")
-	# 11. Ground type sampling (statistik).
-	var rumput := 0
-	var tanah := 0
-	var batu := 0
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 42
-	for i in 400:
-		var x := rng.randf_range(-190.0, 190.0)
-		var z := rng.randf_range(-190.0, 190.0)
-		match world.get_ground_type(x, z):
-			WorldScript.GroundType.GRASS:
-				rumput += 1
-			WorldScript.GroundType.DIRT:
-				tanah += 1
-			WorldScript.GroundType.ROCK:
-				batu += 1
-	if rumput < 200:
-		failures.append("rumput sample=%d/400 (mau >=200)" % rumput)
 	if failures.is_empty():
 		print("WORLD_TEST PASS")
-		print("GROUND: rumput=%d tanah=%d batu=%d" % [rumput, tanah, batu])
-		print("GRASS: chunks=%d total=%d" % [chunk_count, total_grass])
+		print("MAP: Classic Island 512m seed 1234, spawn=" + str(spawn_pos))
 	else:
 		print("WORLD_TEST FAIL")
 		for f in failures:

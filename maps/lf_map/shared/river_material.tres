@@ -1,0 +1,13 @@
+[gd_resource type="ShaderMaterial" format=3 uid="uid://bxwj3gfobqvgc"]
+
+[ext_resource type="Shader" path="res://addons/lowland_forge/shaders/river_flow.gdshader" id="1_xn8g4"]
+
+[resource]
+render_priority = 0
+shader = ExtResource("1_xn8g4")
+shader_parameter/streak_color = null
+shader_parameter/flow_speed = null
+shader_parameter/period = null
+shader_parameter/streak_strength = null
+shader_parameter/bank_foam = null
+shader_parameter/darken = null

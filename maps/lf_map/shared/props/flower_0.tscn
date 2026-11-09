@@ -1,0 +1,7 @@
+[gd_scene format=3 uid="uid://biadka81lahpn"]
+
+[ext_resource type="ArrayMesh" uid="uid://kloa5lbxfkok" path="res://maps/lf_map/shared/flower_0.res" id="1_bxieh"]
+
+[node name="Flower0" type="MeshInstance3D" unique_id=784153193]
+cast_shadow = 0
+mesh = ExtResource("1_bxieh")
