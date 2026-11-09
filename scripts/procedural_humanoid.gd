@@ -521,6 +521,20 @@ func _physics_process(delta: float) -> void:
 		if not foot_stepping[i] and not foot_stepping[1 - i] and on_floor_now and jump_state == 0 and _is_crossed(i, right):
 			_start_recovery_step(i, right, forward)
 
+	# Return to the neutral idle stance after locomotion or a jump.
+	# The airborne tuck / landing target can leave both feet offset from
+	# the original standing pose; the hip ceiling then keeps the pelvis
+	# low and the character appears permanently hunched after stopping.
+	var fully_idle := not moving and wish_dir.length() <= 0.05 and jump_state == 0 and not foot_stepping[0] and not foot_stepping[1] and flight_timer <= 0.0
+	if fully_idle and on_floor_now:
+		for i in 2:
+			var idle_side := -1.0 if i == 0 else 1.0
+			var idle_foot := global_position + right * idle_side * STEP_LATERAL + forward * 0.05
+			idle_foot.y = 0.05
+			foot_planted_pos[i] = foot_planted_pos[i].move_toward(idle_foot, delta * 2.5)
+			foot_target_pos[i] = idle_foot
+			foot_from_pos[i] = idle_foot
+
 	# Landing blend (state 3): feet glide from the tuck to their plant
 	# positions over 0.15 s instead of snapping — the "nyedat" fix.
 	# A foot that starts a step mid-blend is left alone (the step's
