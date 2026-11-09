@@ -13,7 +13,7 @@ const SUBDIV := 64
 const LAKE_CENTER := Vector2(14.0, 12.0)
 const LAKE_RADIUS := 9.0
 const WATER_LEVEL := -0.25
-const GRASS_COUNT := 20000
+const GRASS_COUNT := 30000
 const TREE_COUNT := 24
 const BOULDER_COUNT := 14
 
@@ -223,15 +223,17 @@ func _create_water() -> void:
 func _blade_mesh() -> ArrayMesh:
 	# 2 quad menyilang. Shader repo TIDAK punya discard/taper, jadi
 	# bentuk runcingnya dari GEOMETRI: 3 baris, lebar menyempit ke ujung
-	# (0.06 → 0.04 → 0.015). Bilah tetap LURUS — barisnya buat lancip,
+	# (0.12 → 0.08 → 0.03). Bilah tetap LURUS — barisnya buat lancip,
 	# bukan buat melengkung (minta Bagus: lurus aja).
+	# Ukuran direvisi 2026-11-09: 0.06 x 0.6 kekecilan + ketinggian,
+	# jadi dilebarin & dipendekin (0.12 x 0.4).
 	# UV.y = 0 di ujung, 1 di pangkal (syarat repo: displacement
 	# affect = 1.0 - UV.y, ujung paling kena angin).
 	var verts := PackedVector3Array()
 	var uvs := PackedVector2Array()
 	var indices := PackedInt32Array()
-	var rows := [0.0, 0.3, 0.6]
-	var row_half_w := [0.03, 0.02, 0.0075]
+	var rows := [0.0, 0.2, 0.4]
+	var row_half_w := [0.06, 0.04, 0.015]
 	var row_uv := [1.0, 0.5, 0.0]
 	var quads := [
 		[Vector3(-1.0, 0.0, 0.0), Vector3(1.0, 0.0, 0.0)],
