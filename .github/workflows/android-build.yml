@@ -158,7 +158,12 @@ jobs:
       - name: Install Android build template
         run: |
           set -euo pipefail
-          godot --headless --path . --install-android-build-template
+          # --install-android-build-template saja TIDAK membuat Godot
+          # keluar sendiri (run 42568861763 nyangkut >5 menit di step
+          # ini) — jadi pakai --quit + timeout sebagai pengaman. Install
+          # terjadi saat startup, sebelum main loop; test -f memastikan
+          # template benar-benar terpasang sebelum lanjut.
+          timeout 120 godot --headless --path . --install-android-build-template --quit || true
           test -f android/gradle/wrapper/gradle-wrapper.properties
 
       - name: Use Gradle mirror + pre-install
