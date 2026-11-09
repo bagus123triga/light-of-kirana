@@ -53,6 +53,7 @@ const ARM_UPPER := 0.28
 const ARM_LOWER := 0.26
 const STEP_LATERAL := 0.11
 const GRAVITY := 20.0
+const MAX_STAIR_STEP_UP := 0.24
 
 # Set by main.gd every frame (keyboard, joystick, or test).
 var move_input := Vector2.ZERO
@@ -162,7 +163,7 @@ func _ready() -> void:
 	# Centre 0.8 puts the bottom exactly at y=0, body stays at y=0.
 	shape.position = Vector3(0, 0.8, 0)
 	add_child(shape)
-	floor_snap_length = 0.3
+	floor_snap_length = 0.32
 	floor_max_angle = deg_to_rad(45.0)
 
 	var mat := _orange_material()
@@ -354,6 +355,35 @@ func _resolve_foot_collision(right: Vector3, forward: Vector3) -> void:
 		foot_target_pos[mover] += right * side * 0.08
 
 
+func _try_step_up(horizontal_delta: Vector3) -> void:
+	# CharacterBody3D does not climb vertical risers by itself. When the
+	# staircase trigger is active, test a small raised version of the body.
+	# Only step up if the raised capsule has clear forward space AND a
+	# walkable tread directly below it. No invisible ramp is involved.
+	if not is_on_stairs or not is_on_floor() or horizontal_delta.length() < 0.0001:
+		return
+	var wall_hit := KinematicCollision3D.new()
+	if not test_move(global_transform, horizontal_delta, wall_hit):
+		return
+	var up_motion := Vector3.UP * MAX_STAIR_STEP_UP
+	if test_move(global_transform, up_motion):
+		return
+	var raised_transform := global_transform.translated(up_motion)
+	if test_move(raised_transform, horizontal_delta):
+		return
+	var forward_transform := raised_transform.translated(horizontal_delta)
+	var down_hit := KinematicCollision3D.new()
+	if not test_move(forward_transform, Vector3.DOWN * (MAX_STAIR_STEP_UP + 0.06), down_hit):
+		return
+	if down_hit.get_normal().dot(Vector3.UP) < cos(floor_max_angle):
+		return
+	# Convert the downward probe travel into the exact rise to the next
+	# tread, instead of lifting by the maximum amount every time.
+	var actual_rise := MAX_STAIR_STEP_UP + down_hit.get_travel().y
+	if actual_rise > 0.015 and actual_rise <= MAX_STAIR_STEP_UP + 0.001:
+		global_position.y += actual_rise
+
+
 func _physics_process(delta: float) -> void:
 	time_alive += delta
 	var speed_max := RUN_SPEED if is_running else WALK_SPEED
@@ -487,6 +517,7 @@ func _physics_process(delta: float) -> void:
 			velocity.y -= GRAVITY * delta
 		velocity.x = horizontal_motion.x
 		velocity.z = horizontal_motion.z
+		_try_step_up(Vector3(horizontal_motion.x, 0.0, horizontal_motion.z) * delta)
 		move_and_slide()
 
 	# Drive gait timing from actual smoothed horizontal movement, not

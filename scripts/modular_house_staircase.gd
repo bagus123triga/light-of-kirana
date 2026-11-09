@@ -38,7 +38,6 @@ extends Node3D
 
 func _ready() -> void:
 	_rebuild()
-	_setup_walkable_ramp()
 
 func _rebuild() -> void:
 	for child in get_children():
@@ -54,44 +53,43 @@ func _rebuild() -> void:
 
 	for i in range(step_count):
 		var height := float(i + 1) * riser_height
-		# Visual treads only; a sloped collider beneath them is walkable.
-		var step_visual := Node3D.new()
-		step_visual.name = "Step_%02d" % (i + 1)
-		step_visual.position = Vector3(0.0, 0.0, -(float(i) + 0.5) * tread_depth)
-		add_child(step_visual)
+		# Each tread is a real solid step: its visual block and collision
+		# share the same dimensions. The block fills from floor level to
+		# this riser's top, creating a true staircase profile.
+		var step_body := StaticBody3D.new()
+		step_body.name = "Step_%02d" % (i + 1)
+		step_body.position = Vector3(0.0, height * 0.5, -(float(i) + 0.5) * tread_depth)
+		add_child(step_body)
+
 		var step_mesh := MeshInstance3D.new()
 		var box_mesh := BoxMesh.new()
 		box_mesh.size = Vector3(stair_width, height, tread_depth)
 		step_mesh.mesh = box_mesh
 		step_mesh.material_override = material
-		step_mesh.position.y = height * 0.5
-		step_visual.add_child(step_mesh)
+		step_body.add_child(step_mesh)
+
+		var step_collision := CollisionShape3D.new()
+		var step_shape := BoxShape3D.new()
+		step_shape.size = box_mesh.size
+		step_collision.shape = step_shape
+		step_body.add_child(step_collision)
 
 	if add_handrails and step_count >= 3:
 		_build_handrail(-1.0, material)
 		_build_handrail(1.0, material)
 
-func _setup_walkable_ramp() -> void:
+	_setup_stair_trigger()
+
+func _setup_stair_trigger() -> void:
 	var total_height := float(step_count) * riser_height
 	var total_depth := float(step_count) * tread_depth
-	var slope := atan2(total_height, total_depth)
-	var ramp_body := StaticBody3D.new()
-	ramp_body.name = "WalkableRamp"
-	add_child(ramp_body)
-	var ramp_collision := CollisionShape3D.new()
-	var ramp_shape := BoxShape3D.new()
-	ramp_shape.size = Vector3(stair_width - 0.08, 0.12, sqrt(total_depth * total_depth + total_height * total_height))
-	ramp_collision.shape = ramp_shape
-	ramp_collision.position = Vector3(0.0, total_height * 0.5 - 0.06, -total_depth * 0.5)
-	ramp_collision.rotation.x = slope
-	ramp_body.add_child(ramp_collision)
 	var trigger := Area3D.new()
 	trigger.name = "StairTraversalArea"
 	trigger.collision_layer = 0
 	trigger.collision_mask = 1
 	var trigger_shape := CollisionShape3D.new()
 	var area_box := BoxShape3D.new()
-	area_box.size = Vector3(stair_width + 0.6, total_height + 2.0, total_depth + 0.8)
+	area_box.size = Vector3(stair_width + 0.8, total_height + 2.0, total_depth + 1.0)
 	trigger_shape.shape = area_box
 	trigger_shape.position = Vector3(0.0, total_height * 0.5, -total_depth * 0.5)
 	trigger.add_child(trigger_shape)

@@ -96,8 +96,8 @@ func _build_world() -> void:
 	# A second, taller residential staircase for testing longer climbs.
 	var tall_staircase := staircase_scene.instantiate() as Node3D
 	tall_staircase.name = "HouseStaircase_Tall_Test"
-	tall_staircase.step_count = 16
-	tall_staircase.riser_height = 0.20
+	tall_staircase.step_count = 18
+	tall_staircase.riser_height = 0.22
 	tall_staircase.tread_depth = 0.30
 	tall_staircase.stair_width = 1.5
 	tall_staircase.rotation.y = 0.0
