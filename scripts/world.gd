@@ -1,20 +1,22 @@
 extends Node3D
 
-## LIGHT OF KIRANA — dunia v1.
+## LIGHT OF KIRANA — dunia v2 (world 128 m, minta Bagus 2026-11-09).
 ## Tanah berbukit dari heightmap + noise (tanpa addon), bertekstur CC0
 ## Poly Haven (rumput / tanah gundul / batu lereng curam, mask per-vertex).
 ## Danau bertepi berombak (tanpa garis lurus) + air shader stylized.
 ## Rumput MultiMesh + shader angin. Tanpa pohon & batu (minta Bagus 2026-11-09).
-## Cahaya: 1 matahari + langit + kabut (GL Compatibility).
+## Langit + siklus hari + kabut (jarak pandang) diatur scripts/sky.gd.
 
 enum GroundType { GRASS, DIRT, ROCK }
 
-const WORLD_SIZE := 64.0
-const SUBDIV := 64
+const WORLD_SIZE := 128.0
+const SUBDIV := 128
 const LAKE_CENTER := Vector2(14.0, 12.0)
 const LAKE_RADIUS := 9.0
 const WATER_LEVEL := -0.25
-const GRASS_COUNT := 80000
+# World 4x lebih luas (64->128 m); rumput 80k->120k biar tetap rapat
+# tanpa ngelag di tablet (120k x 8 vertex = ~1 jt vertex, 1 draw call).
+const GRASS_COUNT := 120000
 
 var grass_material: ShaderMaterial
 var terrain_material: ShaderMaterial
@@ -35,7 +37,6 @@ func _ready() -> void:
 	_dirt_noise.frequency = 0.08
 	_dirt_noise.fractal_octaves = 3
 	_ambience = get_tree().get_first_node_in_group("ambience")
-	_create_environment()
 	_create_terrain()
 	_create_water()
 	_create_grass()
@@ -118,40 +119,6 @@ func _ground_mask(x: float, z: float) -> Color:
 			return Color(1.0, 0.0, 0.0)
 		_:
 			return Color(0.0, 1.0, 0.0)
-
-
-# --- Langit, matahari, kabut ---
-
-func _create_environment() -> void:
-	var world_env := WorldEnvironment.new()
-	var env := Environment.new()
-	env.background_mode = Environment.BG_SKY
-	var sky := Sky.new()
-	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.35, 0.60, 0.90)
-	sky_mat.sky_horizon_color = Color(0.75, 0.85, 0.95)
-	sky_mat.ground_bottom_color = Color(0.25, 0.30, 0.25)
-	sky_mat.ground_horizon_color = Color(0.70, 0.78, 0.85)
-	sky_mat.sun_angle_max = 30.0
-	sky.sky_material = sky_mat
-	env.sky = sky
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.72, 0.80, 0.92)
-	env.ambient_light_energy = 0.6
-	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.glow_enabled = true
-	env.glow_intensity = 0.2
-	env.fog_enabled = true
-	env.fog_light_color = Color(0.75, 0.83, 0.92)
-	env.fog_density = 0.004
-	world_env.environment = env
-	add_child(world_env)
-	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-48.0, -32.0, 0.0)
-	sun.light_energy = 1.0
-	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 60.0
-	add_child(sun)
 
 
 # --- Tanah ---

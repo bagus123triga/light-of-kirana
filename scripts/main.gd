@@ -7,8 +7,10 @@ extends Node3D
 const WorldScript := preload("res://scripts/world.gd")
 const FlyCameraScript := preload("res://scripts/fly_camera.gd")
 const AmbienceScript := preload("res://scripts/ambience.gd")
+const SkyScript := preload("res://scripts/sky.gd")
 
 var _world: Node3D
+var _sky: Node3D
 var _test_mode := false
 var _test_frames := 0
 
@@ -26,6 +28,10 @@ func _ready() -> void:
 	cam.set_script(FlyCameraScript)
 	cam.world = _world
 	add_child(cam)
+	# Langit + siklus hari (matahari/bulan/bintang/awan bertekstur).
+	_sky = Node3D.new()
+	_sky.set_script(SkyScript)
+	add_child(_sky)
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	var label := Label.new()
@@ -68,12 +74,13 @@ func _run_world_test() -> void:
 			failures.append("jenis tanah invalid")
 		# Sebaran warna tanah: batu jangan mendominasi bukit (dugaan
 		# "atas putih" — batu abu-abu di mana-mana), rumput harus dominan.
+		# World kini 128 m, jadi sampel di ±60 (bukan ±30).
 		var rng := RandomNumberGenerator.new()
 		rng.seed = 7
 		var counts := [0, 0, 0]
 		for i in 400:
-			var x := rng.randf_range(-30.0, 30.0)
-			var z := rng.randf_range(-30.0, 30.0)
+			var x := rng.randf_range(-60.0, 60.0)
+			var z := rng.randf_range(-60.0, 60.0)
 			counts[_world.get_ground_type(x, z)] += 1
 		print("GROUND: rumput=%d tanah=%d batu=%d" % counts)
 		if float(counts[2]) / 400.0 > 0.25:
@@ -91,7 +98,36 @@ func _run_world_test() -> void:
 			failures.append("material terrain null")
 		elif _world.terrain_material.get_shader_parameter("grass_tex") == null:
 			failures.append("tekstur rumput terrain tidak terpasang")
-		# Kamera terbang: ada, aktif, dan bisa gerak.
+		# World 128 m (bukan 64): ujung world masih ada tanah, bukan void.
+		if absf(_world.get_height(-60.0, -60.0)) > 6.0:
+			failures.append("ujung world terlalu curam")
+		# Rumput: world 4x luas, jumlah helai harus naik (120k).
+		if grass == null or grass.multimesh.instance_count < 50000:
+			failures.append("rumput terlalu sedikit untuk world 128 m")
+		# Langit + siklus hari: node ada, matahari/bulan/bintang/awan ada,
+		# waktu berjalan (siang->sore->malam).
+		if _sky == null:
+			failures.append("langit null")
+		else:
+			var t0: float = _sky.time_of_day
+			_sky.set_time_of_day(12.0)
+			if absf(_sky.time_of_day - 12.0) > 0.01:
+				failures.append("set waktu gagal")
+			_sky.set_time_of_day(t0)
+			if _sky.get_node_or_null("StarDome") == null:
+				failures.append("kubah bintang tidak ada")
+			var sun_found := false
+			var moon_found := false
+			for child in _sky.get_children():
+				if child is Sprite3D and child.texture != null:
+					if child.texture.resource_path.ends_with("sun.png"):
+						sun_found = true
+					if child.texture.resource_path.ends_with("moon.png"):
+						moon_found = true
+			if not sun_found:
+				failures.append("matahari tidak ada")
+			if not moon_found:
+				failures.append("bulan tidak ada")
 		var cam := get_tree().get_first_node_in_group("fly_camera")
 		if cam == null:
 			failures.append("kamera terbang null")

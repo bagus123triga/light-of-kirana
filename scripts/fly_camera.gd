@@ -27,6 +27,9 @@ var _look_touch_id := -1
 func _ready() -> void:
 	add_to_group("fly_camera")
 	position = Vector3(0.0, 9.0, 20.0)
+	# Jarak pandang jauh biar kubah bintang (400 m) + matahari/bulan
+	# (350 m) kelihatan; kabut yang menelan terrain di ~90 m.
+	far = 600.0
 	_update_camera()
 	_create_touch_controls()
 
