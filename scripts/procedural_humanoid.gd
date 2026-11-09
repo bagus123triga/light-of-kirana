@@ -227,7 +227,7 @@ func _ready() -> void:
 		shin_mesh.append(shin)
 		var foot := MeshInstance3D.new()
 		var foot_box := BoxMesh.new()
-		foot_box.size = Vector3(0.09, 0.05, 0.24)
+		foot_box.size = Vector3(0.09, 0.05, 0.18)
 		foot.mesh = foot_box
 		foot.material_override = mat
 		add_child(foot)
@@ -722,7 +722,7 @@ func _physics_process(delta: float) -> void:
 		if foot_stepping[i]:
 			foot_pitch = sin(PI * clampf(foot_step_t[i], 0.0, 1.0)) * 0.35
 		var foot_fwd := Vector3(sin(foot_yaw[i]), 0, cos(foot_yaw[i]))
-		var foot_pos := ankle + foot_fwd * 0.05
+		var foot_pos := ankle + foot_fwd * 0.07
 		foot_pos.y = ankle.y
 		foot_mesh[i].global_transform = Transform3D(Basis.from_euler(Vector3(foot_pitch, foot_yaw[i], 0.0)), foot_pos)
 
