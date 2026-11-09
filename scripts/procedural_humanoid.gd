@@ -364,7 +364,7 @@ func _try_step_up(horizontal_delta: Vector3) -> bool:
 
 	var next_foot_point := global_position + horizontal_delta
 	var next_floor_y := _foot_ground_y(next_foot_point)
-	var rise := next_floor_y - global_position.y
+	var rise := (next_floor_y - 0.05) - global_position.y
 	# Only assist upward steps. Downward travel is handled by gravity and
 	# floor snapping, so the character naturally plants onto each lower tread.
 	if rise <= 0.015 or rise > MAX_STAIR_STEP_UP:
@@ -519,8 +519,10 @@ func _physics_process(delta: float) -> void:
 		velocity.x = horizontal_motion.x
 		velocity.z = horizontal_motion.z
 		var stair_step_consumed := _try_step_up(Vector3(horizontal_motion.x, 0.0, horizontal_motion.z) * delta)
-		if not stair_step_consumed:
-			move_and_slide()
+		if stair_step_consumed:
+			velocity.x = 0.0
+			velocity.z = 0.0
+		move_and_slide()
 
 	# Drive gait timing from actual smoothed horizontal movement, not
 	# raw joystick magnitude. This also makes stop/start transitions agree.
