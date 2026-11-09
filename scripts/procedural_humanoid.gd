@@ -61,6 +61,7 @@ var wish_dir := Vector3.ZERO
 var is_running := false
 var is_on_stairs := false
 var stair_up_direction := Vector3.UP
+var stair_next_foot := 0
 var want_jump := false
 var test_mode := false
 
@@ -299,6 +300,8 @@ func _is_crossed(i: int, right: Vector3) -> bool:
 
 func set_stair_state(active: bool, up_direction: Vector3 = Vector3.UP) -> void:
 	is_on_stairs = active
+	if active and not is_on_stairs:
+		stair_next_foot = 0
 	if active and up_direction.length() > 0.01:
 		stair_up_direction = up_direction.normalized()
 
@@ -577,16 +580,13 @@ func _physics_process(delta: float) -> void:
 			_start_recovery_step(i, right, forward)
 		if foot_stepping[i]:
 			foot_step_t[i] += delta / swing
-			# Predict where the body will actually be when this swing ends.
-			# Recompute the landing point EVERY physics frame: a one-time
-			# target goes stale during turns and while accelerating/braking,
-			# making the body run past the foot before it can land.
-			var swing_remaining := swing * (1.0 - clampf(foot_step_t[i], 0.0, 1.0))
-			var swing_side := -1.0 if i == 0 else 1.0
-			foot_target_pos[i] = global_position + horizontal_motion * swing_remaining + step_forward * (landing_lead + 0.05) + step_right * swing_side * STEP_LATERAL
-			# On stairs, plant the swing target on the real tread surface.
-			# A fixed y=0.05 made every descending step drag along the floor.
-			foot_target_pos[i].y = _foot_ground_y(foot_target_pos[i])
+			# On ordinary ground, continuously predict touchdown. On stairs,
+			# keep the target LOCKED for the whole swing: chasing a moving
+			# target each physics frame makes the foot slide along the tread.
+			if not is_on_stairs:
+				var swing_remaining := swing * (1.0 - clampf(foot_step_t[i], 0.0, 1.0))
+				var swing_side := -1.0 if i == 0 else 1.0
+				foot_target_pos[i] = global_position + horizontal_motion * swing_remaining + step_forward * (landing_lead + 0.05) + step_right * swing_side * STEP_LATERAL
 			var t := _smoothstep(foot_step_t[i])
 			var pos := foot_from_pos[i].lerp(foot_target_pos[i], t)
 			var clearance := (0.22 if wish_dir.dot(stair_up_direction) > 0.0 else 0.12) if is_on_stairs else (FOOT_CLEARANCE if not is_running else RUN_FOOT_CLEARANCE)
@@ -607,12 +607,14 @@ func _physics_process(delta: float) -> void:
 				foot_planted_pos[i] = foot_target_pos[i]
 				foot_planted_pos[i].y = _foot_ground_y(foot_planted_pos[i])
 				steps_taken += 1
+				if is_on_stairs:
+					stair_next_foot = 1 - i
 		elif on_floor_now and flight_timer <= 0.0 and (jump_state == 0 or jump_state == 3):
 			var ideal := global_position + step_forward * stride * LAND_BIAS + step_right * side * STEP_LATERAL + step_forward * 0.05
 			ideal.y = _foot_ground_y(ideal)
 			var lag := (ideal - foot_planted_pos[i]).dot(forward) if moving else (ideal - foot_planted_pos[i]).length()
 			var stair_height_error := absf(ideal.y - foot_planted_pos[i].y)
-			var stair_needs_step := is_on_stairs and moving and (lag > 0.08 or stair_height_error > 0.06)
+			var stair_needs_step := is_on_stairs and moving and (lag > 0.06 or stair_height_error > 0.035)
 			var other_stepping := foot_stepping[1 - i]
 			# Alternation, always. Walk: one foot at a time. Run: the
 			# second foot may only toe off once the first is past 75%
@@ -624,12 +626,21 @@ func _physics_process(delta: float) -> void:
 			# During a sharp turn keep a support foot down even at run speed.
 			var turning_sharply := wish_dir.length() > 0.05 and forward.dot(wish_dir.normalized()) < 0.7
 			var gate := (not other_stepping) or (is_running and not turning_sharply and foot_step_t[1 - i] > RUN_GATE)
-			if (is_on_stairs and stair_needs_step and gate) or (not is_on_stairs and moving and lag > 0.15 and gate) or (not moving and lag > 0.25 and not other_stepping):
+			if (is_on_stairs and i == stair_next_foot and stair_needs_step and not other_stepping) or (not is_on_stairs and moving and lag > 0.15 and gate) or (not moving and lag > 0.25 and not other_stepping):
 				# Predict the body position at touchdown and place the foot a
 				# small distance ahead of it. RUN_STRIDE is total step reach,
 				# not a fixed world-space point the body can run past.
-				var target := global_position + horizontal_motion * swing + step_forward * (landing_lead + 0.05) + step_right * side * STEP_LATERAL
-				target.y = _foot_ground_y(target)
+				var target: Vector3
+				if is_on_stairs:
+					# Advance roughly one tread per step, with a small lateral
+					# offset to keep the feet on their own side of the staircase.
+					var stair_forward := Vector3(stair_up_direction.x, 0.0, stair_up_direction.z).normalized()
+					var stair_right := Vector3(stair_forward.z, 0.0, -stair_forward.x)
+					target = foot_planted_pos[i] + stair_forward * 0.30 + stair_right * side * 0.015
+					target.y = _foot_ground_y(target)
+				else:
+					target = global_position + horizontal_motion * swing + step_forward * (landing_lead + 0.05) + step_right * side * STEP_LATERAL
+					target.y = _foot_ground_y(target)
 				foot_from_pos[i] = foot_planted_pos[i]
 				foot_target_pos[i] = target
 				foot_step_t[i] = 0.0
