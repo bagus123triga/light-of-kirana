@@ -253,9 +253,25 @@ func _physics_process(delta: float) -> void:
 	# (gravity + velocity, no scripted height), then absorbs the
 	# landing (hip dips again). All three are driven by the same
 	# spring body + IK as walking, nothing is keyframed.
-	if want_jump and jump_state == 0 and (test_mode or is_on_floor()):
-		jump_state = 1
-		jump_timer = 0.16
+	# Edge-triggered: a press that arrives mid-jump is DROPPED, not
+	# queued. The old code only cleared want_jump when a jump started,
+	# so a press (or a held Space / a second tap) during the air stayed
+	# true and re-fired the instant the feet touched down — the
+	# humanoid kept jumping and could never stay on the ground
+	# ("terbang gabisa balik", screenshot 2026-11-09 21:36).
+	if want_jump:
+		if jump_state == 0 and (test_mode or is_on_floor()):
+			jump_state = 1
+			jump_timer = 0.16
+			# Cancel any step in progress: a foot mid-swing to a
+			# far-ahead (1.1 m run) target would land way in front
+			# while the body is airborne, and the body would come
+			# down sitting with both legs stretched forward — the
+			# exact pose in that screenshot. Feet stay planted
+			# through the crouch, then tuck in the air.
+			for i in 2:
+				foot_stepping[i] = false
+				foot_step_t[i] = 0.0
 		want_jump = false
 	if jump_state == 1:
 		jump_timer -= delta
@@ -267,6 +283,20 @@ func _physics_process(delta: float) -> void:
 		if not test_mode and is_on_floor() and velocity.y < 0.0:
 			jump_state = 3
 			jump_timer = 0.18
+			# Plant both feet on the ground directly under the body.
+			# The airborne tuck leaves them under the hip in the air;
+			# without this they stay floating and the next step
+			# starts from mid-air.
+			var fwd0 := Vector3(sin(facing_yaw), 0, cos(facing_yaw))
+			var rgt0 := Vector3(cos(facing_yaw), 0, -sin(facing_yaw))
+			for i in 2:
+				var side0 := -1.0 if i == 0 else 1.0
+				foot_stepping[i] = false
+				foot_step_t[i] = 0.0
+				foot_planted_pos[i] = global_position + rgt0 * side0 * STEP_LATERAL + fwd0 * 0.05
+				foot_planted_pos[i].y = 0.05
+				foot_target_pos[i] = foot_planted_pos[i]
+				foot_from_pos[i] = foot_planted_pos[i]
 	elif jump_state == 3:
 		jump_timer -= delta
 		if jump_timer <= 0.0:
@@ -341,10 +371,13 @@ func _physics_process(delta: float) -> void:
 			ideal.y = 0.05
 			var lag := (ideal - foot_planted_pos[i]).dot(forward) if moving else (ideal - foot_planted_pos[i]).length()
 			var other_stepping := foot_stepping[1 - i]
-			# Walk: one foot at a time (stable). Run: overlap allowed —
-			# the support foot must lift as soon as the body passes it,
-			# otherwise it gets dragged (ngesot).
-			var gate := (not other_stepping) or is_running
+			# Alternation, always. Walk: one foot at a time. Run: the
+			# second foot may only start once the first is past 60%
+			# of its swing (weight transfer, just before it lands).
+			# The old run gate ("overlap any time") let BOTH feet
+			# start stepping together — both forward at once
+			# (Bagus, 2026-11-09: "2 kaki maju barengan wkwkwk").
+			var gate := (not other_stepping) or (is_running and foot_step_t[1 - i] > 0.6)
 			if (moving and lag > 0.15 and gate) or (not moving and lag > 0.25 and not other_stepping):
 				var target := global_position + wish_dir * stride + right * side * STEP_LATERAL + forward * 0.05
 				target.y = 0.05
@@ -440,7 +473,12 @@ func _physics_process(delta: float) -> void:
 		var want_yaw := facing_yaw
 		if foot_stepping[i] and step_dir.length() > 0.01:
 			want_yaw = atan2(step_dir.x, step_dir.z)
-		foot_yaw[i] = lerp_angle(foot_yaw[i], want_yaw, clampf(delta * 10.0, 0.0, 1.0))
+		# Foot yaw is CLAMPED to +-45 degrees from the body facing
+		# (Bagus, 2026-11-09). A human foot cannot spin all the way
+		# round — the old code let it follow the step direction
+		# without limit, so on sharp turns the sole rotated fully.
+		var yaw_diff := clampf(wrapf(want_yaw - facing_yaw, -PI, PI), deg_to_rad(-45.0), deg_to_rad(45.0))
+		foot_yaw[i] = lerp_angle(foot_yaw[i], facing_yaw + yaw_diff, clampf(delta * 10.0, 0.0, 1.0))
 		var foot_pitch := 0.0
 		if foot_stepping[i]:
 			foot_pitch = sin(PI * clampf(foot_step_t[i], 0.0, 1.0)) * 0.35

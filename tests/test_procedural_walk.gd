@@ -72,17 +72,37 @@ func _init() -> void:
 	# 4. Run 2 s: must be faster than walk, and feet must not drag
 	# (ngesot): the IK clamp counter must stay low — a clamped ankle
 	# means the planted foot was dragged along the ground.
+	# Also (Bagus, 2026-11-09): the two feet must ALTERNATE, never
+	# both start stepping together; and no foot may point more than
+	# 45 degrees away from the body facing.
 	var run_start := humanoid.position
 	humanoid.is_running = true
 	humanoid.foot_clamp_count = 0
+	var bad_overlap := 0
+	var max_yaw_err := 0.0
+	var prev_stepping := [false, false]
 	for i in 120:
 		humanoid._physics_process(1.0 / 60.0)
+		# A foot may only START stepping while the other is already
+		# past 60% of its swing — starting together is the bug.
+		for f in 2:
+			if humanoid.foot_stepping[f] and not prev_stepping[f]:
+				var o := 1 - f
+				if humanoid.foot_stepping[o] and humanoid.foot_step_t[o] < 0.6:
+					bad_overlap += 1
+			prev_stepping[f] = humanoid.foot_stepping[f]
+		for f in 2:
+			max_yaw_err = maxf(max_yaw_err, absf(wrapf(humanoid.foot_yaw[f] - humanoid.facing_yaw, -PI, PI)))
 	var run_moved := (humanoid.position - run_start).length()
 	if run_moved < 5.0:
 		failures.append("run moved too little: %.2f m in 2 s" % run_moved)
 	if humanoid.foot_clamp_count > 20:
 		failures.append("run dragged feet: ankle clamped %d times in 2 s" % humanoid.foot_clamp_count)
-	print("RUN_CLAMP_TEST clamps=%d" % humanoid.foot_clamp_count)
+	if bad_overlap > 0:
+		failures.append("run: both feet stepped together on %d frames" % bad_overlap)
+	if max_yaw_err > deg_to_rad(46.0):
+		failures.append("run: foot yaw %.1f deg off facing, max is 45" % rad_to_deg(max_yaw_err))
+	print("RUN_CLAMP_TEST clamps=%d bad_overlap=%d max_yaw_err=%.1f deg" % [humanoid.foot_clamp_count, bad_overlap, rad_to_deg(max_yaw_err)])
 
 	# Remove the test humanoid BEFORE the main scene: two
 	# CharacterBody3Ds at the same origin overlap, and the physics
@@ -150,6 +170,31 @@ func _init() -> void:
 		if peak_y <= y0 + 0.3:
 			failures.append("main scene: jump did not lift the humanoid (peak y=%.2f, start y=%.2f)" % [peak_y, y0])
 		print("JUMP_TEST start_y=%.2f peak_y=%.2f min_hip_crouch=%.2f" % [y0, peak_y, min_hip])
+
+	# 6b. A LOMPAT press mid-air must be DROPPED, not queued
+	# (regression for 2026-11-09 21:36: the jump kept re-firing on
+	# landing and the humanoid flew and could not come back down).
+	for i in 90:
+		await physics_frame
+		if hum3.jump_state == 0 and hum3.is_on_floor():
+			break
+	hum3.want_jump = true
+	var mid_air_pressed := false
+	var second_jump_started := false
+	for i in 90:
+		await physics_frame
+		if hum3.jump_state == 2 and not mid_air_pressed:
+			hum3.want_jump = true
+			mid_air_pressed = true
+		if hum3.jump_state == 1 and mid_air_pressed:
+			second_jump_started = true
+	for i in 30:
+		await physics_frame
+	if second_jump_started:
+		failures.append("mid-air jump press queued a second jump")
+	if hum3.position.y > 0.05:
+		failures.append("humanoid still airborne after landing + 30 frames (y=%.2f)" % hum3.position.y)
+	print("JUMP_QUEUE_TEST mid_air_pressed=%s second_jump=%s final_y=%.2f" % [mid_air_pressed, second_jump_started, hum3.position.y])
 
 	print("WALK_TEST hip_y=%.2f steps=%d walked=%.2f m ran=%.2f m planted_err=%.3f" % [final_hip_y, final_steps, moved, run_moved, max_planted_err])
 	if failures.is_empty():
