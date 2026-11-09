@@ -14,7 +14,7 @@ const SUBDIV := 64
 const LAKE_CENTER := Vector2(14.0, 12.0)
 const LAKE_RADIUS := 9.0
 const WATER_LEVEL := -0.25
-const GRASS_COUNT := 60000
+const GRASS_COUNT := 80000
 
 var grass_material: ShaderMaterial
 var terrain_material: ShaderMaterial
