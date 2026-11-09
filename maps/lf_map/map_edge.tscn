@@ -1,51 +1,36 @@
-[gd_scene format=4 uid="uid://b0ifcgq312ego"]
+[gd_scene format=4]
 
 [ext_resource type="Material" uid="uid://bgewq02f4blh2" path="res://maps/lf_map/shared/water_material.tres" id="1_wnfh4"]
 [ext_resource type="Material" uid="uid://4xcm6lyyftlv" path="res://maps/lf_map/shared/terrain_material.tres" id="2_4jfxh"]
 
 [sub_resource type="ArrayMesh" id="lf_1"]
 _surfaces = [{
-"aabb": AABB(-6000, 0, -6000, 12512, 1e-05, 12512),
+"aabb": AABB(-6000, 0, -6000, 6512, 1e-05, 6512),
 "format": 34359738375,
 "material": ExtResource("1_wnfh4"),
 "primitive": 3,
 "uv_scale": Vector4(0, 0, 0, 0),
-"vertex_count": 48,
-"vertex_data": PackedByteArray("AAAAAAAAAAAAgLvFAAAARAAAAAAAgLvFAAAARAAAAAAAAAAAAAAAAAAAAAAAgLvFAAAARAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABEAAAARAAAAAAAAABEAAAARAAAAAAAgMtFAAAAAAAAAAAAAABEAAAARAAAAAAAgMtFAAAAAAAAAAAAgMtFAIC7xQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABEAIC7xQAAAAAAAAAAAAAAAAAAAAAAAABEAIC7xQAAAAAAAABEAIC7xQAAAAAAgLvFAAAAAAAAAAAAgLvFAAAAAAAAAAAAAAAAAIC7xQAAAAAAgLvFAAAAAAAAAAAAAAAAAIC7xQAAAAAAAAAAAIC7xQAAAAAAAABEAAAAAAAAAAAAAABEAAAAAAAAAAAAgMtFAIC7xQAAAAAAAABEAAAAAAAAAAAAgMtFAIC7xQAAAAAAgMtFAAAARAAAAAAAAAAAAIDLRQAAAAAAAAAAAIDLRQAAAAAAAABEAAAARAAAAAAAAAAAAIDLRQAAAAAAAABEAAAARAAAAAAAAABEAAAARAAAAAAAgLvFAIDLRQAAAAAAgLvFAIDLRQAAAAAAAAAAAAAARAAAAAAAgLvFAIDLRQAAAAAAAAAAAAAARAAAAAAAAAAAAAAARAAAAAAAAABEAIDLRQAAAAAAAABEAIDLRQAAAAAAgMtFAAAARAAAAAAAAABEAIDLRQAAAAAAgMtFAAAARAAAAAAAgMtF/3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+/")
+"vertex_count": 18,
+"vertex_data": PackedByteArray("AAAAAAAAAAAAgLvFAAAARAAAAAAAgLvFAAAARAAAAAAAAAAAAAAAAAAAAAAAgLvFAAAARAAAAAAAAAAAAAAAAAAAAAAAAAAAAIC7xQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABEAIC7xQAAAAAAAAAAAAAAAAAAAAAAAABEAIC7xQAAAAAAAABEAIC7xQAAAAAAgLvFAAAAAAAAAAAAgLvFAAAAAAAAAAAAAAAAAIC7xQAAAAAAgLvFAAAAAAAAAAAAAAAAAIC7xQAAAAAAAAAA/3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+/")
 }, {
-"aabb": AABB(-6000, -19.755133, -6000, 12512, 1e-05, 12512),
-"attribute_data": PackedByteArray("UUw4/1FMOP9RTDj/UUw4/1FMOP9RTDj/UUw4/1FMOP9RTDj/UUw4/1FMOP9RTDj/UUw4/1FMOP9RTDj/UUw4/1FMOP9RTDj/UUw4/1FMOP9RTDj/UUw4/1FMOP9RTDj/UUw4/1FMOP9RTDj/UUw4/1FMOP9RTDj/UUw4/1FMOP9RTDj/UUw4/1FMOP9RTDj/UUw4/1FMOP9RTDj/UUw4/1FMOP9RTDj/UUw4/1FMOP9RTDj/UUw4/1FMOP9RTDj/"),
+"aabb": AABB(-6000, -20.141884, -6000, 6512, 1e-05, 6512),
+"attribute_data": PackedByteArray("UUw4/1FMOP9RTDj/UUw4/1FMOP9RTDj/UUw4/1FMOP9RTDj/UUw4/1FMOP9RTDj/UUw4/1FMOP9RTDj/UUw4/1FMOP9RTDj/"),
 "format": 34359738383,
 "material": ExtResource("2_4jfxh"),
 "primitive": 3,
 "uv_scale": Vector4(0, 0, 0, 0),
-"vertex_count": 48,
-"vertex_data": PackedByteArray("AAAAAIMKnsEAgLvFAAAARIMKnsEAgLvFAAAARIMKnsEAAAAAAAAAAIMKnsEAgLvFAAAARIMKnsEAAAAAAAAAAIMKnsEAAAAAAAAAAIMKnsEAAABEAAAARIMKnsEAAABEAAAARIMKnsEAgMtFAAAAAIMKnsEAAABEAAAARIMKnsEAgMtFAAAAAIMKnsEAgMtFAIC7xYMKnsEAAAAAAAAAAIMKnsEAAAAAAAAAAIMKnsEAAABEAIC7xYMKnsEAAAAAAAAAAIMKnsEAAABEAIC7xYMKnsEAAABEAIC7xYMKnsEAgLvFAAAAAIMKnsEAgLvFAAAAAIMKnsEAAAAAAIC7xYMKnsEAgLvFAAAAAIMKnsEAAAAAAIC7xYMKnsEAAAAAAIC7xYMKnsEAAABEAAAAAIMKnsEAAABEAAAAAIMKnsEAgMtFAIC7xYMKnsEAAABEAAAAAIMKnsEAgMtFAIC7xYMKnsEAgMtFAAAARIMKnsEAAAAAAIDLRYMKnsEAAAAAAIDLRYMKnsEAAABEAAAARIMKnsEAAAAAAIDLRYMKnsEAAABEAAAARIMKnsEAAABEAAAARIMKnsEAgLvFAIDLRYMKnsEAgLvFAIDLRYMKnsEAAAAAAAAARIMKnsEAgLvFAIDLRYMKnsEAAAAAAAAARIMKnsEAAAAAAAAARIMKnsEAAABEAIDLRYMKnsEAAABEAIDLRYMKnsEAgMtFAAAARIMKnsEAAABEAIDLRYMKnsEAgMtFAAAARIMKnsEAgMtF/3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+/")
+"vertex_count": 18,
+"vertex_data": PackedByteArray("AAAAAJQiocEAgLvFAAAARJQiocEAgLvFAAAARJQiocEAAAAAAAAAAJQiocEAgLvFAAAARJQiocEAAAAAAAAAAJQiocEAAAAAAIC7xZQiocEAAAAAAAAAAJQiocEAAAAAAAAAAJQiocEAAABEAIC7xZQiocEAAAAAAAAAAJQiocEAAABEAIC7xZQiocEAAABEAIC7xZQiocEAgLvFAAAAAJQiocEAgLvFAAAAAJQiocEAAAAAAIC7xZQiocEAgLvFAAAAAJQiocEAAAAAAIC7xZQiocEAAAAA/3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+/")
 }]
 
 [sub_resource type="BoxShape3D" id="lf_2"]
-size = Vector3(512, 20.755133, 6000)
+size = Vector3(512, 21.141884, 6000)
 
 [sub_resource type="BoxShape3D" id="lf_3"]
-size = Vector3(512, 20.755133, 6000)
+size = Vector3(6000, 21.141884, 512)
 
 [sub_resource type="BoxShape3D" id="lf_4"]
-size = Vector3(6000, 20.755133, 512)
-
-[sub_resource type="BoxShape3D" id="lf_5"]
-size = Vector3(6000, 20.755133, 6000)
-
-[sub_resource type="BoxShape3D" id="lf_6"]
-size = Vector3(6000, 20.755133, 6000)
-
-[sub_resource type="BoxShape3D" id="lf_7"]
-size = Vector3(6000, 20.755133, 512)
-
-[sub_resource type="BoxShape3D" id="lf_8"]
-size = Vector3(6000, 20.755133, 6000)
-
-[sub_resource type="BoxShape3D" id="lf_9"]
-size = Vector3(6000, 20.755133, 6000)
+size = Vector3(6000, 21.141884, 6000)
 
 [node name="MapEdge" type="Node3D" unique_id=661500925]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -256, 0, -256)
@@ -58,33 +43,13 @@ mesh = SubResource("lf_1")
 metadata/water_level = 0.0
 
 [node name="Box0" type="CollisionShape3D" parent="WaterArea" unique_id=661500931]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 256, -10.377566, -3000)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 256, -10.570942, -3000)
 shape = SubResource("lf_2")
 
 [node name="Box1" type="CollisionShape3D" parent="WaterArea" unique_id=661500933]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 256, -10.377566, 3512)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3000, -10.570942, 256)
 shape = SubResource("lf_3")
 
 [node name="Box2" type="CollisionShape3D" parent="WaterArea" unique_id=661500935]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3000, -10.377566, 256)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3000, -10.570942, -3000)
 shape = SubResource("lf_4")
-
-[node name="Box3" type="CollisionShape3D" parent="WaterArea" unique_id=661500937]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3000, -10.377566, -3000)
-shape = SubResource("lf_5")
-
-[node name="Box4" type="CollisionShape3D" parent="WaterArea" unique_id=661500939]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3000, -10.377566, 3512)
-shape = SubResource("lf_6")
-
-[node name="Box5" type="CollisionShape3D" parent="WaterArea" unique_id=661500941]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3512, -10.377566, 256)
-shape = SubResource("lf_7")
-
-[node name="Box6" type="CollisionShape3D" parent="WaterArea" unique_id=661500943]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3512, -10.377566, -3000)
-shape = SubResource("lf_8")
-
-[node name="Box7" type="CollisionShape3D" parent="WaterArea" unique_id=354694093]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3512, -10.377566, 3512)
-shape = SubResource("lf_9")

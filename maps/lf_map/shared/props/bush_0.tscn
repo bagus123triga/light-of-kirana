@@ -1,4 +1,4 @@
-[gd_scene format=3 uid="uid://bmc46ahkdxrao"]
+[gd_scene format=3]
 
 [ext_resource type="ArrayMesh" uid="uid://bnsgjhe3xipc0" path="res://maps/lf_map/shared/bush_0.res" id="1_u6x0v"]
 

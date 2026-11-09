@@ -2,7 +2,7 @@ extends Node3D
 
 ## LIGHT OF KIRANA — main v6 (LowLand Forge).
 ## Dunia = map hasil bake LowLand Forge (res://maps/lf_map/map.tscn):
-## Classic Island 512 m, seed 1234, 1 tile, 13524 props (pohon, batu, rumput).
+## Highland Island 512 m, seed 2026, 1 tile, 9282 props (pohon, batu, rumput).
 ## Langit tetap shader stylized prosedural + siklus hari (scripts/sky.gd).
 ## Kamera terbang (scripts/fly_camera.gd), mulai di titik spawn map.
 ## Mode test: `godot --headless --path . -- --world-test`
@@ -98,7 +98,7 @@ func _run_world_test() -> void:
 		failures.append("kabut: masih nyala (mau mati)")
 	if failures.is_empty():
 		print("WORLD_TEST PASS")
-		print("MAP: Classic Island 512m seed 1234, spawn=" + str(spawn_pos))
+		print("MAP: Highland Island 512m seed 2026, spawn=" + str(spawn_pos))
 	else:
 		print("WORLD_TEST FAIL")
 		for f in failures:
