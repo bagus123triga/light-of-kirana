@@ -93,6 +93,17 @@ func _build_world() -> void:
 	staircase.position = Vector3(0.0, 0.0, -3.2)
 	add_child(staircase)
 
+	# A second, taller residential staircase for testing longer climbs.
+	var tall_staircase := staircase_scene.instantiate() as Node3D
+	tall_staircase.name = "HouseStaircase_Tall_Test"
+	tall_staircase.step_count = 16
+	tall_staircase.riser_height = 0.20
+	tall_staircase.tread_depth = 0.30
+	tall_staircase.stair_width = 1.5
+	tall_staircase.rotation.y = 0.0
+	tall_staircase.position = Vector3(4.5, 0.0, -3.2)
+	add_child(tall_staircase)
+
 
 func _build_humanoid() -> void:
 	humanoid = ProceduralHumanoid.new()
