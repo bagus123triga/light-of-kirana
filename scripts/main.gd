@@ -74,13 +74,13 @@ func _run_world_test() -> void:
 			failures.append("jenis tanah invalid")
 		# Sebaran warna tanah: batu jangan mendominasi bukit (dugaan
 		# "atas putih" — batu abu-abu di mana-mana), rumput harus dominan.
-		# World kini 128 m, jadi sampel di ±60 (bukan ±30).
+		# World kini 256 m, jadi sampel di ±120 (bukan ±60).
 		var rng := RandomNumberGenerator.new()
 		rng.seed = 7
 		var counts := [0, 0, 0]
 		for i in 400:
-			var x := rng.randf_range(-60.0, 60.0)
-			var z := rng.randf_range(-60.0, 60.0)
+			var x := rng.randf_range(-120.0, 120.0)
+			var z := rng.randf_range(-120.0, 120.0)
 			counts[_world.get_ground_type(x, z)] += 1
 		print("GROUND: rumput=%d tanah=%d batu=%d" % counts)
 		if float(counts[2]) / 400.0 > 0.25:
@@ -98,12 +98,12 @@ func _run_world_test() -> void:
 			failures.append("material terrain null")
 		elif _world.terrain_material.get_shader_parameter("grass_tex") == null:
 			failures.append("tekstur rumput terrain tidak terpasang")
-		# World 128 m (bukan 64): ujung world masih ada tanah, bukan void.
-		if absf(_world.get_height(-60.0, -60.0)) > 6.0:
+		# World 256 m (bukan 128): ujung world masih ada tanah, bukan void.
+		if absf(_world.get_height(-120.0, -120.0)) > 6.0:
 			failures.append("ujung world terlalu curam")
-		# Rumput: world 4x luas, jumlah helai harus naik (120k).
-		if grass == null or grass.multimesh.instance_count < 50000:
-			failures.append("rumput terlalu sedikit untuk world 128 m")
+		# Rumput: world 4x luas, jumlah helai harus naik (150k).
+		if grass == null or grass.multimesh.instance_count < 80000:
+			failures.append("rumput terlalu sedikit untuk world 256 m")
 		# Langit + siklus hari: node ada, matahari/bulan/bintang/awan ada,
 		# waktu berjalan (siang->sore->malam).
 		if _sky == null:

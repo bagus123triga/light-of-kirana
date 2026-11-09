@@ -1,6 +1,6 @@
 extends Node3D
 
-## LIGHT OF KIRANA — dunia v2 (world 128 m, minta Bagus 2026-11-09).
+## LIGHT OF KIRANA — dunia v3 (world 256 m, minta Bagus 2026-11-09).
 ## Tanah berbukit dari heightmap + noise (tanpa addon), bertekstur CC0
 ## Poly Haven (rumput / tanah gundul / batu lereng curam, mask per-vertex).
 ## Danau bertepi berombak (tanpa garis lurus) + air shader stylized.
@@ -9,14 +9,15 @@ extends Node3D
 
 enum GroundType { GRASS, DIRT, ROCK }
 
-const WORLD_SIZE := 128.0
-const SUBDIV := 128
+const WORLD_SIZE := 256.0
+const SUBDIV := 256
 const LAKE_CENTER := Vector2(14.0, 12.0)
 const LAKE_RADIUS := 9.0
 const WATER_LEVEL := -0.25
-# World 4x lebih luas (64->128 m); rumput 80k->120k biar tetap rapat
-# tanpa ngelag di tablet (120k x 8 vertex = ~1 jt vertex, 1 draw call).
-const GRASS_COUNT := 120000
+# World 4x lebih luas lagi (128->256 m); rumput 120k->150k biar tetap
+# rapat tanpa ngelag (150k x 8 vertex, 1 draw call; tanah hijau dari
+# tekstur Grass004 tetap menutupi walau bilah 3D lebih jarang).
+const GRASS_COUNT := 150000
 
 var grass_material: ShaderMaterial
 var terrain_material: ShaderMaterial

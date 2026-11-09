@@ -13,7 +13,8 @@ uniform sampler2D dirt_tex : filter_linear_mipmap, repeat_enable;
 uniform sampler2D rock_tex : filter_linear_mipmap, repeat_enable;
 uniform float tex_scale = 0.33; // 1 tile per 3 meter
 // Tint hijau lembut biar rumput lebih hidup ala Zelda (hijau kuning).
-uniform vec3 grass_tint : source_color = vec3(1.05, 1.15, 0.9);
+// Revisi: warna agak pekat (minta Bagus) — hijau lebih jenuh, biru dikurangi.
+uniform vec3 grass_tint : source_color = vec3(1.0, 1.25, 0.8);
 
 varying vec3 world_pos;
 
