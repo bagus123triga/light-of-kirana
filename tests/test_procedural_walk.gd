@@ -84,6 +84,20 @@ func _init() -> void:
 		failures.append("run dragged feet: ankle clamped %d times in 2 s" % humanoid.foot_clamp_count)
 	print("RUN_CLAMP_TEST clamps=%d" % humanoid.foot_clamp_count)
 
+	# Remove the test humanoid BEFORE the main scene: two
+	# CharacterBody3Ds at the same origin overlap, and the physics
+	# solver ejects the main one (measured: teleported to
+	# (22, 0.89, -7) with velocity 1325 — a harness artifact, not a
+	# game bug; the real game has one humanoid). The main scene must
+	# spawn alone so its body starts clean at y=0.
+	# Capture the summary numbers first — the node is freed below.
+	var final_hip_y := humanoid.hip_y
+	var final_steps := humanoid.steps_taken
+	root.remove_child(humanoid)
+	humanoid.queue_free()
+	await physics_frame
+	await physics_frame
+
 	# 5. Camera framing (regression for screenshot 2026-11-09 20:55 WIB:
 	#    humanoid was at the bottom edge, half cut off, because the old
 	#    pivot rotation.x = -0.35 tilted the camera UP). The humanoid's
@@ -111,8 +125,9 @@ func _init() -> void:
 	# 6. Real physics in the main scene (regression for 2026-11-09 21:01:
 	#    the first build had no CollisionShape3D, so is_on_floor() was
 	#    always false, the step planner never stepped and jump never
-	#    fired). The humanoid must stand on the floor, then lift off
-	#    when want_jump is set.
+	#    fired). The humanoid must stand on the floor (body y=0, not
+	#    sunk -0.05), then jump PROCEDURALLY: press down first
+	#    (crouch: hip dips), then lift off on physics, then land.
 	var hum3: ProceduralHumanoid = main_inst.humanoid
 	for i in 30:
 		await physics_frame
@@ -120,16 +135,23 @@ func _init() -> void:
 		failures.append("main scene: humanoid is not on the floor after 30 physics frames")
 	else:
 		var y0 := hum3.position.y
+		if absf(y0) > 0.02:
+			failures.append("main scene: body sunk/floating at y=%.2f, should be 0.0" % y0)
 		hum3.want_jump = true
 		var peak_y := y0
-		for i in 20:
+		var min_hip := 10.0
+		for i in 50:
 			await physics_frame
 			peak_y = maxf(peak_y, hum3.position.y)
-		if peak_y <= y0 + 0.02:
+			if i < 12:
+				min_hip = minf(min_hip, hum3.hip_y)
+		if min_hip > 0.92:
+			failures.append("jump did not press down first (min hip_y in crouch=%.2f, want <0.92)" % min_hip)
+		if peak_y <= y0 + 0.3:
 			failures.append("main scene: jump did not lift the humanoid (peak y=%.2f, start y=%.2f)" % [peak_y, y0])
-		print("JUMP_TEST start_y=%.2f peak_y=%.2f" % [y0, peak_y])
+		print("JUMP_TEST start_y=%.2f peak_y=%.2f min_hip_crouch=%.2f" % [y0, peak_y, min_hip])
 
-	print("WALK_TEST hip_y=%.2f steps=%d walked=%.2f m ran=%.2f m planted_err=%.3f" % [humanoid.hip_y, humanoid.steps_taken, moved, run_moved, max_planted_err])
+	print("WALK_TEST hip_y=%.2f steps=%d walked=%.2f m ran=%.2f m planted_err=%.3f" % [final_hip_y, final_steps, moved, run_moved, max_planted_err])
 	if failures.is_empty():
 		print("WALK_TEST PASS")
 		quit(0)

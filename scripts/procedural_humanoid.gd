@@ -73,6 +73,13 @@ var foot_yaw: Array[float] = [0.0, 0.0]
 var knee_pos: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO]
 var flight_timer := 0.0
 var foot_clamp_count := 0
+# Procedural jump (Bagus, 2026-11-09): a jump is NOT an instant
+# velocity — it presses into the ground first, then launches on
+# physics, then absorbs the landing. States: 0 none, 1 crouch
+# (pressing down), 2 airborne, 3 landing (absorbing).
+var jump_state := 0
+var jump_timer := 0.0
+var jump_crouch := 0.0
 
 
 func _orange_material() -> StandardMaterial3D:
@@ -105,7 +112,13 @@ func _ready() -> void:
 	capsule.radius = 0.28
 	capsule.height = 1.6
 	shape.shape = capsule
-	shape.position = Vector3(0, 0.85, 0)
+	# BUG FIX 2026-11-09 (screenshot 21:19 WIB): capsule centre was
+	# 0.85, so its bottom sat at 0.05 above the origin and the body
+	# sank 0.05 into the floor to touch it. Hip then sat at 0.95
+	# instead of 1.0, and the knees bent 0.16 m again IN THE REAL
+	# SCENE even though the headless test (body at y=0) passed.
+	# Centre 0.8 puts the bottom exactly at y=0, body stays at y=0.
+	shape.position = Vector3(0, 0.8, 0)
 	add_child(shape)
 	floor_snap_length = 0.3
 	floor_max_angle = deg_to_rad(45.0)
@@ -232,17 +245,43 @@ func _physics_process(delta: float) -> void:
 		facing_yaw = lerp_angle(facing_yaw, target_yaw, clampf(delta * 10.0, 0.0, 1.0))
 	rotation.y = facing_yaw
 
-	# Gravity + jump (CharacterBody3D). In test_mode, integrate by hand.
+	# --- Procedural jump: crouch -> launch -> land (Bagus, 2026-11-09) ---
+	# The old jump set velocity.y = 6.0 instantly, feet snapped up —
+	# it looked like a canned animation, not a jump. A real jump
+	# PRESSES into the ground first (crouch: hip drops, knees bend
+	# because the feet stay planted), then launches on physics
+	# (gravity + velocity, no scripted height), then absorbs the
+	# landing (hip dips again). All three are driven by the same
+	# spring body + IK as walking, nothing is keyframed.
+	if want_jump and jump_state == 0 and (test_mode or is_on_floor()):
+		jump_state = 1
+		jump_timer = 0.16
+		want_jump = false
+	if jump_state == 1:
+		jump_timer -= delta
+		if jump_timer <= 0.0:
+			jump_state = 2
+			if not test_mode:
+				velocity.y = 6.5
+	elif jump_state == 2:
+		if not test_mode and is_on_floor() and velocity.y < 0.0:
+			jump_state = 3
+			jump_timer = 0.18
+	elif jump_state == 3:
+		jump_timer -= delta
+		if jump_timer <= 0.0:
+			jump_state = 0
+	var crouch_target := 0.22 if jump_state == 1 else (0.18 if jump_state == 3 else 0.0)
+	jump_crouch = move_toward(jump_crouch, crouch_target, delta * (2.0 if jump_state == 1 else 1.2))
+
+	# Gravity (CharacterBody3D). In test_mode, integrate by hand.
 	if test_mode:
-		if want_jump:
-			want_jump = false
 		position += wish_dir * speed * delta
 	else:
 		if is_on_floor():
-			if want_jump:
-				velocity.y = 6.0
-				want_jump = false
-			else:
+			# Launch frame: keep the impulse, don't overwrite it with
+			# the -0.5 floor snap.
+			if jump_state != 2:
 				velocity.y = -0.5
 		else:
 			velocity.y -= GRAVITY * delta
@@ -261,7 +300,11 @@ func _physics_process(delta: float) -> void:
 	# arrives, otherwise the body outruns its feet and they drag.
 	# Stride is capped at 0.45 m (walk) so a planted foot never ends up
 	# further from the hip than the legs can reach.
-	var stride_max := 0.45 if not is_running else 0.85
+	# Run stride is LONG (1.1 m): at 4.4 m/s a 0.85 m stride forced a
+	# 5+ steps/s cadence, which is why the arms flailed and the legs
+	# looked like hopping. Longer stride + flight = ~2.7 steps/s,
+	# a real run cadence.
+	var stride_max := 0.45 if not is_running else 1.1
 	var stride := clampf(speed * 0.26, 0.18, stride_max)
 	var swing := clampf(stride / maxf(speed, 0.5), 0.16, SWING_TIME) if moving else SWING_TIME
 	# Run flight phase (Singer): after a step lands while running, the
@@ -269,11 +312,14 @@ func _physics_process(delta: float) -> void:
 	# makes running look like running instead of sliding (ngesot).
 	# Without it the support foot stays planted while the body moves
 	# ~1 m, and the IK clamp drags it along the ground.
+	# The tuck is SHALLOW (feet ~0.25 m off the ground, not snapped
+	# to the hip): the old -0.5 tuck made every run step look like
+	# a little jump (Bagus, 2026-11-09).
 	if flight_timer > 0.0:
 		flight_timer -= delta
 		for i in 2:
-			foot_planted_pos[i] = hip_global + Vector3(0, -0.5, 0) + right * (-1.0 if i == 0 else 1.0) * 0.08
-			foot_planted_pos[i].y = hip_global.y - 0.5
+			var tuck := hip_global + Vector3(0, -0.75, 0) + right * (-1.0 if i == 0 else 1.0) * 0.08
+			foot_planted_pos[i] = foot_planted_pos[i].lerp(tuck, clampf(delta * 12.0, 0.0, 1.0))
 	for i in 2:
 		var side := -1.0 if i == 0 else 1.0
 		if foot_stepping[i]:
@@ -290,7 +336,7 @@ func _physics_process(delta: float) -> void:
 				steps_taken += 1
 				if is_running and speed_factor > 0.6:
 					flight_timer = 0.12
-		elif on_floor_now and flight_timer <= 0.0:
+		elif on_floor_now and flight_timer <= 0.0 and jump_state == 0:
 			var ideal := global_position + wish_dir * stride * LAND_BIAS + right * side * STEP_LATERAL + forward * 0.05
 			ideal.y = 0.05
 			var lag := (ideal - foot_planted_pos[i]).dot(forward) if moving else (ideal - foot_planted_pos[i]).length()
@@ -307,11 +353,12 @@ func _physics_process(delta: float) -> void:
 				foot_step_t[i] = 0.0
 				foot_stepping[i] = true
 
-	# Airborne: tuck both feet under the body.
+	# Airborne: feet tuck under the body GRADUALLY (lerp), not snapped
+	# — the old snap is what made the jump look like an animation.
 	if not on_floor_now:
 		for i in 2:
-			foot_planted_pos[i] = hip_global + Vector3(0, -0.55, 0) + right * (-1.0 if i == 0 else 1.0) * 0.08
-			foot_planted_pos[i].y = hip_global.y - 0.55
+			var tuck := hip_global + Vector3(0, -0.65, 0) + right * (-1.0 if i == 0 else 1.0) * 0.08
+			foot_planted_pos[i] = foot_planted_pos[i].lerp(tuck, clampf(delta * 8.0, 0.0, 1.0))
 		_was_airborne = true
 	elif _was_airborne:
 		hip_vel_y -= 1.5
@@ -326,8 +373,13 @@ func _physics_process(delta: float) -> void:
 	# fixed timer. (The old fixed hip target + 1.04 m legs is what made
 	# the idle crouch: the spring held the hip low while the legs were
 	# long, so both knees had to bend 0.31 m just to stand still.)
-	if moving:
-		gait_phase += delta * (speed / 0.55) * PI
+	# Arm swing / bob phase is tied to the ACTUAL step cycle (PI per
+	# step: swing time, + flight time when running), NOT to speed.
+	# The old rate (speed/0.55 * PI) hit ~8 steps/s at run speed —
+	# that is why the arms flailed like a cartoon (Bagus, 2026-11-09).
+	if moving and (foot_stepping[0] or foot_stepping[1] or flight_timer > 0.0):
+		var cycle := swing if not is_running else swing + 0.12
+		gait_phase += delta * PI / maxf(cycle, 0.2)
 	var horiz_max := 0.0
 	for i in 2:
 		if not foot_stepping[i]:
@@ -341,10 +393,15 @@ func _physics_process(delta: float) -> void:
 	# knee bend (0.16 m) that would not go away.
 	var hip_ceiling := 0.05 + sqrt(maxf(leg_len * leg_len - horiz_max * horiz_max, 0.55 * 0.55))
 	var bob := sin(gait_phase * 2.0) * 0.02 * speed_factor if moving else sin(time_alive * 1.6) * 0.012
-	var flight_lift := 0.06 if flight_timer > 0.0 else 0.0
-	var hip_target := minf(HIP_HEIGHT + bob - 0.04 * speed_factor + flight_lift, hip_ceiling + flight_lift)
+	var flight_lift := 0.03 if flight_timer > 0.0 else 0.0
+	var hip_target := minf(HIP_HEIGHT + bob - 0.04 * speed_factor + flight_lift - jump_crouch, hip_ceiling + flight_lift)
 	hip_vel_y += (HIP_STIFFNESS * (hip_target - hip_y) - HIP_DAMPING * hip_vel_y) * delta
 	hip_y = clampf(hip_y + hip_vel_y * delta, 0.55, 1.02)
+	# Crouch overshoot guard: the spring must not dip the hip deeper
+	# than the crouch itself (headless measured 0.60, a full squat,
+	# for a 0.22 crouch — explicit-Euler overshoot at large dt).
+	if jump_state == 1 or jump_state == 3:
+		hip_y = maxf(hip_y, HIP_HEIGHT - jump_crouch - 0.05)
 	body_root.position.y = hip_y
 	# Tegap (Bagus, 2026-11-09): torso stays near-vertical. The old
 	# 0.08 forward lean + sway made the figure slouch; lean is now
@@ -401,7 +458,8 @@ func _physics_process(delta: float) -> void:
 	shoulder_r.rotation.z = -0.06
 	# Elbow: bent ~0.4 rad at rest, flexes a bit more on the forward
 	# swing; wrist keeps the hand roughly level with a small flick.
-	var elbow_bend := 0.4 + absf(swing_amount) * 0.3
+	# During the jump crouch the arms pull back with the press.
+	var elbow_bend := 0.4 + absf(swing_amount) * 0.3 + jump_crouch * 1.5
 	elbow_l.rotation.x = -elbow_bend
 	elbow_r.rotation.x = -elbow_bend
 	wrist_l.rotation.x = elbow_bend * 0.5
