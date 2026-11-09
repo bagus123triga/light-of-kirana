@@ -785,7 +785,6 @@ func _physics_process(delta: float) -> void:
 	# Walking uses a restrained arm swing; running gets a stronger counter-swing.
 	var arm_swing := 0.30 if not is_running else 0.48
 	var swing_amount := sin(gait_phase) * arm_swing * speed_factor
-	var is_gliding_fall := not on_floor_now and jump_state != 2
 	if is_gliding_fall:
 		# Wingsuit-like fall: arms open sideways, with a gentle cyclic
 		# adjustment so the pose feels aerodynamic instead of frozen.
