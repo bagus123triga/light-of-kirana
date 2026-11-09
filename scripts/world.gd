@@ -13,7 +13,7 @@ const SUBDIV := 64
 const LAKE_CENTER := Vector2(14.0, 12.0)
 const LAKE_RADIUS := 9.0
 const WATER_LEVEL := -0.25
-const GRASS_COUNT := 2600
+const GRASS_COUNT := 5000
 const TREE_COUNT := 24
 const BOULDER_COUNT := 14
 
@@ -219,21 +219,23 @@ func _create_water() -> void:
 func _blade_mesh() -> ArrayMesh:
 	# 2 quad menyilang (bukan segitiga!) — shader gameidea mengharapkan
 	# quad penuh: UV.x 0..1 selebar bilah, UV.y = 0 di ujung, 1 di pangkal,
-	# biar discard-nya membentuk bilah yang meruncing. Segitiga tunggal
-	# bikin rumput kelihatan seperti duri kuning di tablet.
+	# biar discard-nya membentuk bilah yang meruncing.
+	# UKURAN IKUT ARTIKEL: bilah TIPIS (lebar 0.07, tinggi 0.6) — versi
+	# lamaku 0.44 x 0.7 hampir persegi, jadi kelihatan daun berserakan
+	# yang rebah, bukan rumput.
 	var verts := PackedVector3Array()
 	var uvs := PackedVector2Array()
 	var indices := PackedInt32Array()
 	var quads := [
-		[Vector3(-0.22, 0.0, 0.0), Vector3(0.22, 0.0, 0.0)],
-		[Vector3(0.0, 0.0, -0.22), Vector3(0.0, 0.0, 0.22)],
+		[Vector3(-0.035, 0.0, 0.0), Vector3(0.035, 0.0, 0.0)],
+		[Vector3(0.0, 0.0, -0.035), Vector3(0.0, 0.0, 0.035)],
 	]
 	var base := 0
 	for q in quads:
 		var bl: Vector3 = q[0]
 		var br: Vector3 = q[1]
 		# Kiri-bawah, kanan-bawah, kanan-atas (ujung), kiri-atas (ujung).
-		verts.append_array([bl, br, br + Vector3(0.0, 0.7, 0.0), bl + Vector3(0.0, 0.7, 0.0)])
+		verts.append_array([bl, br, br + Vector3(0.0, 0.6, 0.0), bl + Vector3(0.0, 0.6, 0.0)])
 		uvs.append_array([Vector2(0.0, 1.0), Vector2(1.0, 1.0), Vector2(1.0, 0.0), Vector2(0.0, 0.0)])
 		indices.append_array([base + 0, base + 1, base + 2, base + 0, base + 2, base + 3])
 		base += 4
@@ -264,6 +266,11 @@ func _create_grass() -> void:
 	fnl.frequency = 0.05
 	noise_tex.noise = fnl
 	grass_material.set_shader_parameter("wind_noise", noise_tex)
+	# Nilai artikel (blade_bend 0.5, gust 1.0) bikin ujung bilah 0.6 m
+	# terdorong ~0.7 m ke samping — bilah rebah jadi daun. Dilunakkan:
+	# bilah tetap tegak, cuma bergoyang.
+	grass_material.set_shader_parameter("blade_bend", 0.2)
+	grass_material.set_shader_parameter("gust_strength", 0.6)
 	var multimesh := MultiMesh.new()
 	multimesh.transform_format = MultiMesh.TRANSFORM_3D
 	multimesh.use_colors = false
