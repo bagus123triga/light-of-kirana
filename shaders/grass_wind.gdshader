@@ -52,22 +52,23 @@ void vertex() {
 	v_wind_intensity = gust_mask;
 
 	vec3 vertex_pos = VERTEX;
-	vec3 object_right_vector = vec3(1.0, 0.0, 0.0);
-	vec3 object_forward_vector = vec3(0.0, 0.0, 1.0);
 	float height_factor = 1.0 - UV.y;
 	float bend_strength = pow(height_factor, 2.0);
 
-	// Static blade bend
-	vertex_pos += object_forward_vector * blade_bend * bend_strength;
-
-	// wind mostly along local right axis
-	vec3 total_offset = object_right_vector * (idle_sway + gust_push) * bend_strength;
+	// Arah angin & lengkung dihitung di WORLD space biar semua helai
+	// condong ke arah yang SAMA (serentak). Versi artikel menghitungnya
+	// di local space (object_right/object_forward) — tiap instance
+	// diputar acak sumbu Y, jadi tiap helai condong ke arah beda.
+	// Trik yang sama dengan interaksi pemain di artikel: offset world
+	// diubah ke local lewat inverse(MODEL_MATRIX).
+	vec2 wind_dir = normalize(wind_direction);
+	vec3 world_offset = vec3(wind_dir.x, 0.0, wind_dir.y) * (idle_sway + gust_push + blade_bend) * bend_strength;
 
 	// preserve volume / prevent stretching
-	float dist_moved = length(total_offset.xz);
+	float dist_moved = length(world_offset.xz);
 	float y_drop = dist_moved * 0.2 * bend_strength;
 
-	VERTEX = vertex_pos + total_offset;
+	VERTEX = vertex_pos + mat3(inverse(MODEL_MATRIX)) * world_offset;
 	VERTEX.y -= y_drop;
 
 	// interaction

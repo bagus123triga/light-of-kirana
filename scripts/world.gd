@@ -13,7 +13,7 @@ const SUBDIV := 64
 const LAKE_CENTER := Vector2(14.0, 12.0)
 const LAKE_RADIUS := 9.0
 const WATER_LEVEL := -0.25
-const GRASS_COUNT := 5000
+const GRASS_COUNT := 12000
 const TREE_COUNT := 24
 const BOULDER_COUNT := 14
 
@@ -217,28 +217,37 @@ func _create_water() -> void:
 # --- Rumput (hanya di tanah berumput, bukan tanah gundul / batu) ---
 
 func _blade_mesh() -> ArrayMesh:
-	# 2 quad menyilang (bukan segitiga!) — shader gameidea mengharapkan
-	# quad penuh: UV.x 0..1 selebar bilah, UV.y = 0 di ujung, 1 di pangkal,
-	# biar discard-nya membentuk bilah yang meruncing.
-	# UKURAN IKUT ARTIKEL: bilah TIPIS (lebar 0.07, tinggi 0.6) — versi
-	# lamaku 0.44 x 0.7 hampir persegi, jadi kelihatan daun berserakan
-	# yang rebah, bukan rumput.
+	# 2 quad menyilang — shader gameidea mengharapkan quad penuh: UV.x
+	# 0..1 selebar bilah, UV.y = 0 di ujung, 1 di pangkal, biar discard-nya
+	# membentuk bilah yang meruncing. UKURAN IKUT ARTIKEL: bilah TIPIS
+	# (lebar 0.09, tinggi 0.6).
+	# 3 SEGMEN TINGGI (4 baris verteks): biar bilah bisa MELENGKUNG,
+	# bukan kaku miring seperti tongkat — lengkung shader
+	# (pow(1-UV.y, 2)) baru kelihatan kalau ada verteks di tengah.
 	var verts := PackedVector3Array()
 	var uvs := PackedVector2Array()
 	var indices := PackedInt32Array()
+	var half_w := 0.045
+	var rows := [0.0, 0.2, 0.4, 0.6]
+	var row_uv := [1.0, 0.667, 0.333, 0.0]
 	var quads := [
-		[Vector3(-0.035, 0.0, 0.0), Vector3(0.035, 0.0, 0.0)],
-		[Vector3(0.0, 0.0, -0.035), Vector3(0.0, 0.0, 0.035)],
+		[Vector3(-half_w, 0.0, 0.0), Vector3(half_w, 0.0, 0.0)],
+		[Vector3(0.0, 0.0, -half_w), Vector3(0.0, 0.0, half_w)],
 	]
 	var base := 0
 	for q in quads:
 		var bl: Vector3 = q[0]
 		var br: Vector3 = q[1]
-		# Kiri-bawah, kanan-bawah, kanan-atas (ujung), kiri-atas (ujung).
-		verts.append_array([bl, br, br + Vector3(0.0, 0.6, 0.0), bl + Vector3(0.0, 0.6, 0.0)])
-		uvs.append_array([Vector2(0.0, 1.0), Vector2(1.0, 1.0), Vector2(1.0, 0.0), Vector2(0.0, 0.0)])
-		indices.append_array([base + 0, base + 1, base + 2, base + 0, base + 2, base + 3])
-		base += 4
+		var up := Vector3(0.0, 1.0, 0.0)
+		for r in rows.size():
+			verts.append(bl + up * rows[r])
+			verts.append(br + up * rows[r])
+			uvs.append(Vector2(0.0, row_uv[r]))
+			uvs.append(Vector2(1.0, row_uv[r]))
+		for r in rows.size() - 1:
+			var b0 := base + r * 2
+			indices.append_array([b0, b0 + 1, b0 + 3, b0, b0 + 3, b0 + 2])
+		base += rows.size() * 2
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
@@ -301,6 +310,9 @@ func _create_grass() -> void:
 	mmi.name = "Grass"
 	mmi.multimesh = multimesh
 	mmi.material_override = grass_material
+	# Rumput tidak melempar bayangan — bayangan tongkat yang panjang
+	# bikin helai kelihatan makin kaku, dan hemat GPU.
+	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mmi)
 
 
