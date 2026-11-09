@@ -134,6 +134,18 @@ jobs:
           godot --version
           godot --headless --editor --path . --import --quit
 
+      # Gradle TIDAK di-cache sebelum ini: tiap build mengunduh ulang
+      # gradle-8.2-bin.zip (~130 MB) dari services.gradle.org, dan run
+      # 42566184091 gagal tepat di situ (SocketTimeoutException saat
+      # download). Cache ini bikin unduhan cuma sekali, lalu dipakai ulang.
+      - name: Restore Gradle cache
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            ~/.gradle/wrapper/dists
+            ~/.gradle/caches/modules-2
+          key: ${{ runner.os }}-gradle-8.2-v1
+
       - name: Export debug APK
         run: |
           set -euo pipefail
@@ -162,3 +174,14 @@ jobs:
             ${{ env.ANDROID_HOME }}/cmake
             ${{ env.ANDROID_HOME }}/ndk
           key: ${{ runner.os }}-android-sdk-api35-bt35.0.1-ndk28b-cmake3.10.2-v3
+
+      - name: Save Gradle cache
+        if: success()
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ~/.gradle/wrapper/dists
+            ~/.gradle/caches/modules-2
+          key: ${{ runner.os }}-gradle-8.2-v1
