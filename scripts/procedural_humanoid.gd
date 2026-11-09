@@ -355,34 +355,35 @@ func _resolve_foot_collision(right: Vector3, forward: Vector3) -> void:
 		foot_target_pos[mover] += right * side * 0.08
 
 
-func _try_step_up(horizontal_delta: Vector3) -> void:
-	# CharacterBody3D does not climb vertical risers by itself. When the
-	# staircase trigger is active, test a small raised version of the body.
-	# Only step up if the raised capsule has clear forward space AND a
-	# walkable tread directly below it. No invisible ramp is involved.
+func _try_step_up(horizontal_delta: Vector3) -> bool:
+	# Sample the actual tread surface at the character's next horizontal
+	# position. This does not depend on a wall-collision being reported:
+	# short stair risers can be missed by a capsule's rounded lower edge.
 	if not is_on_stairs or not is_on_floor() or horizontal_delta.length() < 0.0001:
-		return
-	var wall_hit := KinematicCollision3D.new()
-	if not test_move(global_transform, horizontal_delta, wall_hit):
-		return
-	var up_motion := Vector3.UP * MAX_STAIR_STEP_UP
-	if test_move(global_transform, up_motion):
-		return
-	var raised_transform := global_transform.translated(up_motion)
-	if test_move(raised_transform, horizontal_delta):
-		return
-	var forward_transform := raised_transform.translated(horizontal_delta)
-	var down_hit := KinematicCollision3D.new()
-	if not test_move(forward_transform, Vector3.DOWN * (MAX_STAIR_STEP_UP + 0.06), down_hit):
-		return
-	if down_hit.get_normal().dot(Vector3.UP) < cos(floor_max_angle):
-		return
-	# Convert the downward probe travel into the exact rise to the next
-	# tread, instead of lifting by the maximum amount every time.
-	var actual_rise := MAX_STAIR_STEP_UP + down_hit.get_travel().y
-	if actual_rise > 0.015 and actual_rise <= MAX_STAIR_STEP_UP + 0.001:
-		global_position.y += actual_rise
+		return false
 
+	var next_foot_point := global_position + horizontal_delta
+	var next_floor_y := _foot_ground_y(next_foot_point)
+	var rise := next_floor_y - global_position.y
+	# Only assist upward steps. Downward travel is handled by gravity and
+	# floor snapping, so the character naturally plants onto each lower tread.
+	if rise <= 0.015 or rise > MAX_STAIR_STEP_UP:
+		return false
+
+	# Lift the capsule by the exact detected tread height, check ceiling
+	# clearance, then check the forward path from the raised transform.
+	var lift := Vector3.UP * rise
+	if test_move(global_transform, lift):
+		return false
+	var raised_transform := global_transform.translated(lift)
+	if test_move(raised_transform, horizontal_delta):
+		return false
+
+	# Consume this frame's horizontal displacement here; the caller skips
+	# applying it a second time through move_and_slide().
+	global_position += horizontal_delta + lift
+	velocity.y = 0.0
+	return true
 
 func _physics_process(delta: float) -> void:
 	time_alive += delta
@@ -517,8 +518,9 @@ func _physics_process(delta: float) -> void:
 			velocity.y -= GRAVITY * delta
 		velocity.x = horizontal_motion.x
 		velocity.z = horizontal_motion.z
-		_try_step_up(Vector3(horizontal_motion.x, 0.0, horizontal_motion.z) * delta)
-		move_and_slide()
+		var stair_step_consumed := _try_step_up(Vector3(horizontal_motion.x, 0.0, horizontal_motion.z) * delta)
+		if not stair_step_consumed:
+			move_and_slide()
 
 	# Drive gait timing from actual smoothed horizontal movement, not
 	# raw joystick magnitude. This also makes stop/start transitions agree.
@@ -583,7 +585,9 @@ func _physics_process(delta: float) -> void:
 			var swing_remaining := swing * (1.0 - clampf(foot_step_t[i], 0.0, 1.0))
 			var swing_side := -1.0 if i == 0 else 1.0
 			foot_target_pos[i] = global_position + horizontal_motion * swing_remaining + step_forward * (landing_lead + 0.05) + step_right * swing_side * STEP_LATERAL
-			foot_target_pos[i].y = 0.05
+			# On stairs, plant the swing target on the real tread surface.
+			# A fixed y=0.05 made every descending step drag along the floor.
+			foot_target_pos[i].y = _foot_ground_y(foot_target_pos[i])
 			var t := _smoothstep(foot_step_t[i])
 			var pos := foot_from_pos[i].lerp(foot_target_pos[i], t)
 			var clearance := (0.22 if wish_dir.dot(stair_up_direction) > 0.0 else 0.12) if is_on_stairs else (FOOT_CLEARANCE if not is_running else RUN_FOOT_CLEARANCE)
