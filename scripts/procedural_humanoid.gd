@@ -282,6 +282,41 @@ func _start_recovery_step(i: int, right: Vector3, forward: Vector3) -> void:
 	foot_step_t[i] = 0.0
 	foot_stepping[i] = true
 
+func _resolve_foot_collision(right: Vector3, forward: Vector3) -> void:
+	# Only intervene when the actual foot volumes overlap. Normal gait spacing
+	# is left untouched; this is a collision response, not a permanent wide stance.
+	var left_foot := foot_planted_pos[0]
+	var right_foot := foot_planted_pos[1]
+	var separation := Vector2(left_foot.x - right_foot.x, left_foot.z - right_foot.z).length()
+	if separation >= 0.15 or absf(left_foot.y - right_foot.y) >= 0.12:
+		return
+
+	# Move the foot that is already swinging. If both are planted, or both
+	# are airborne, move the one that has drifted furthest across the midline.
+	var mover := 0
+	if foot_stepping[1] and not foot_stepping[0]:
+		mover = 1
+	elif foot_stepping[0] and foot_stepping[1]:
+		var left_lateral := (left_foot - global_position).dot(right)
+		var right_lateral := (right_foot - global_position).dot(right)
+		mover = 0 if absf(left_lateral + STEP_LATERAL) < absf(right_lateral - STEP_LATERAL) else 1
+	elif not foot_stepping[0] and not foot_stepping[1]:
+		var left_lateral := (left_foot - global_position).dot(right)
+		var right_lateral := (right_foot - global_position).dot(right)
+		mover = 0 if left_lateral > -STEP_LATERAL else 1
+
+	var side := -1.0 if mover == 0 else 1.0
+	if not foot_stepping[mover]:
+		_start_recovery_step(mover, right, forward)
+	else:
+		# Nudge the swinging foot away smoothly and keep its swing trajectory
+		# attached to the corrected position, preventing repeated interpenetration.
+		var push := maxf(0.04, 0.15 - separation) * 0.65
+		var correction := right * side * push
+		foot_planted_pos[mover] += correction
+		foot_from_pos[mover] += correction
+		foot_target_pos[mover] += right * side * 0.08
+
 
 func _physics_process(delta: float) -> void:
 	time_alive += delta
@@ -520,6 +555,10 @@ func _physics_process(delta: float) -> void:
 	for i in 2:
 		if not foot_stepping[i] and not foot_stepping[1 - i] and on_floor_now and jump_state == 0 and _is_crossed(i, right):
 			_start_recovery_step(i, right, forward)
+
+	# Resolve real foot-to-foot contact only; ordinary close steps are untouched.
+	if on_floor_now and jump_state == 0:
+		_resolve_foot_collision(right, forward)
 
 	# Return to the neutral idle stance after locomotion or a jump.
 	# The airborne tuck / landing target can leave both feet offset from
