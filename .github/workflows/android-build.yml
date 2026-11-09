@@ -144,20 +144,40 @@ jobs:
           path: |
             ~/.gradle/wrapper/dists
             ~/.gradle/caches/modules-2
-          key: ${{ runner.os }}-gradle-8.2-v1
+          key: ${{ runner.os }}-gradle-8.2-v2
 
-      # Link unduh Gradle diganti (minta Bagus): services.gradle.org
-      # me-redirect ke github.com/gradle/gradle-distributions, dan host
-      # itu timeout berkali-kali dari runner (504 / SocketTimeoutException,
-      # run 42566184091 attempt 1-3). Mirror Tencent terverifikasi:
-      # mengunduh penuh 128.689.645 byte, zip utuh (unzip -t lolos),
-      # isi gradle-8.2/ benar. File diunduh dulu dengan curl --retry
-      # lalu ditaruh di tempat wrapper mengharapkannya, jadi wrapper
-      # tidak mengunduh sendiri lagi.
-      - name: Pre-download Gradle (mirror)
+      # Template Android di-install dulu supaya bisa diedit: link unduh
+      # Gradle di gradle-wrapper.properties diganti ke mirror Tencent.
+      # Iya — Godot memakai Gradle wrapper, dan wrapper itu mengunduh
+      # Gradle 8.2 dari distributionUrl di template (services.gradle.org,
+      # yang me-redirect ke github.com/gradle/gradle-distributions dan
+      # timeout berkali-kali: 504 / SocketTimeoutException).
+      # Pre-seed dist di ~/.gradle ternyata DIABAIKAN wrapper (alasan
+      # pastinya belum ketemu — hash/layout sudah benar di atas kertas),
+      # jadi ganti link-nya langsung adalah perbaikan yang menentukan.
+      - name: Install Android build template
         run: |
           set -euo pipefail
-          DIST_DIR="$HOME/.gradle/wrapper/dists/gradle-8.2-bin/236d19a2a6a0a9f0d45cb1c09392f8fedb79add3"
+          godot --headless --path . --install-android-build-template
+          test -f android/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Use Gradle mirror + pre-install
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android/gradle/wrapper/gradle-wrapper.properties")
+          t = p.read_text()
+          old = "distributionUrl=https\\://services.gradle.org/distributions/gradle-8.2-bin.zip"
+          new = "distributionUrl=https\\://mirrors.cloud.tencent.com/gradle/gradle-8.2-bin.zip"
+          assert old in t, "distributionUrl line not found in gradle-wrapper.properties"
+          p.write_text(t.replace(old, new))
+          print("distributionUrl -> Tencent mirror")
+          PY
+          # Pre-install Gradle buat URL mirror (sha1 URL) biar wrapper
+          # tidak perlu mengunduh sama sekali; kalau ini terlewat pun,
+          # wrapper tetap mengunduh dari mirror (cepat) bukan link resmi.
+          DIST_DIR="$HOME/.gradle/wrapper/dists/gradle-8.2-bin/cd77c5e0d8309573b97aa9709d01526517419520"
           EXPECTED_SHA256="38f66cd6eef217b4c35855bb11ea4e9fbc53594ccccb5fb82dfd317ef8c2c5a3"
           if [ -f "$DIST_DIR/gradle-8.2-bin.zip.ok" ] && [ -d "$DIST_DIR/gradle-8.2" ]; then
             echo "Gradle 8.2 already installed, skipping download"
@@ -186,7 +206,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build
-          godot --headless --path . --install-android-build-template --export-debug "Android" build/light-of-kirana-debug.apk
+          godot --headless --path . --export-debug "Android" build/light-of-kirana-debug.apk
           test -s build/light-of-kirana-debug.apk
 
       - name: Upload APK
@@ -220,4 +240,4 @@ jobs:
           path: |
             ~/.gradle/wrapper/dists
             ~/.gradle/caches/modules-2
-          key: ${{ runner.os }}-gradle-8.2-v1
+          key: ${{ runner.os }}-gradle-8.2-v2
