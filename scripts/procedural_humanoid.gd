@@ -638,7 +638,9 @@ func _physics_process(delta: float) -> void:
 				# platform lets the pelvis fall below the ankle, making IK
 				# point the thigh upward through the head (the screenshot bug).
 				# Re-parent the ankle target to the pelvis in this same frame.
-				airborne_target = hip_global + Vector3(0, -(LEG_UPPER + LEG_LOWER - 0.06), 0) + right * jump_side * 0.09
+				# Wingsuit / skydiving silhouette: legs trail slightly apart
+				# with a soft knee bend, rather than hanging as a rigid pair.
+				airborne_target = hip_global + Vector3(0, -(LEG_UPPER + LEG_LOWER - 0.10), 0) + right * jump_side * 0.18 + forward * 0.06
 				foot_stepping[i] = false
 				foot_step_t[i] = 0.0
 				foot_planted_pos[i] = airborne_target
@@ -715,8 +717,9 @@ func _physics_process(delta: float) -> void:
 	# A small forward pitch gives running a clear sense of momentum.
 	# Positive X rotation leans the torso toward the character's +Z forward.
 	var forward_lean := 0.025 if not is_running else 0.18
-	body_root.rotation.x = speed_factor * forward_lean
-	body_root.rotation.z = sin(gait_phase) * 0.02 * speed_factor
+	var is_gliding_fall := not on_floor_now and jump_state != 2
+	body_root.rotation.x = 0.10 if is_gliding_fall else speed_factor * forward_lean
+	body_root.rotation.z = sin(time_alive * 2.2) * 0.035 if is_gliding_fall else sin(gait_phase) * 0.02 * speed_factor
 	hip_global = body_root.global_position
 
 	# Heel lift / push-off (Bagus, 2026-11-09 — "tekanan lebih gede"):
@@ -782,17 +785,27 @@ func _physics_process(delta: float) -> void:
 	# Walking uses a restrained arm swing; running gets a stronger counter-swing.
 	var arm_swing := 0.30 if not is_running else 0.48
 	var swing_amount := sin(gait_phase) * arm_swing * speed_factor
-	shoulder_l.rotation.x = swing_amount
-	shoulder_r.rotation.x = -swing_amount
-	# Slight outward angle keeps the arms clear of the torso; shoulder caps
-	# now visually bridge the joint so the upper arms remain attached.
-	shoulder_l.rotation.z = -0.12
-	shoulder_r.rotation.z = 0.12
-	# Elbow: bent ~0.4 rad at rest, flexes a bit more on the forward
-	# swing; wrist keeps the hand roughly level with a small flick.
-	# During the jump crouch the arms pull back with the press.
-	var elbow_bend := 0.4 + absf(swing_amount) * 0.3 + jump_crouch * 1.5
-	elbow_l.rotation.x = -elbow_bend
-	elbow_r.rotation.x = -elbow_bend
-	wrist_l.rotation.x = elbow_bend * 0.5
-	wrist_r.rotation.x = elbow_bend * 0.5
+	var is_gliding_fall := not on_floor_now and jump_state != 2
+	if is_gliding_fall:
+		# Wingsuit-like fall: arms open sideways, with a gentle cyclic
+		# adjustment so the pose feels aerodynamic instead of frozen.
+		var wing_flex := sin(time_alive * 2.4) * 0.045
+		shoulder_l.rotation.x = -0.12 + wing_flex
+		shoulder_r.rotation.x = -0.12 - wing_flex
+		shoulder_l.rotation.z = -1.28
+		shoulder_r.rotation.z = 1.28
+		elbow_l.rotation.x = -0.12
+		elbow_r.rotation.x = -0.12
+		wrist_l.rotation.x = 0.08
+		wrist_r.rotation.x = 0.08
+	else:
+		shoulder_l.rotation.x = swing_amount
+		shoulder_r.rotation.x = -swing_amount
+		# Slight outward angle keeps the arms clear of the torso.
+		shoulder_l.rotation.z = -0.12
+		shoulder_r.rotation.z = 0.12
+		var elbow_bend := 0.4 + absf(swing_amount) * 0.3 + jump_crouch * 1.5
+		elbow_l.rotation.x = -elbow_bend
+		elbow_r.rotation.x = -elbow_bend
+		wrist_l.rotation.x = elbow_bend * 0.5
+		wrist_r.rotation.x = elbow_bend * 0.5
