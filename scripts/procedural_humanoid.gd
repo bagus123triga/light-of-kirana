@@ -415,8 +415,8 @@ func _physics_process(delta: float) -> void:
 				# absorbs the impact instead of leaving the legs tucked and weightless.
 				land_from[i] = foot_planted_pos[i]
 				land_from[i].y = minf(land_from[i].y, 0.18)
-				var run_jump_offset := sin(run_jump_phase) * 0.18 * (-1.0 if i == 0 else 1.0) if is_running else 0.0
-				land_target[i] = global_position + wish_dir * 0.25 + fwd0 * run_jump_offset + rgt0 * side0 * STEP_LATERAL + fwd0 * 0.05
+				var run_jump_landing_offset := sin(run_jump_phase) * 0.18 * (-1.0 if i == 0 else 1.0) if is_running else 0.0
+				land_target[i] = global_position + wish_dir * 0.25 + fwd0 * run_jump_landing_offset + rgt0 * side0 * STEP_LATERAL + fwd0 * 0.05
 				land_target[i].y = 0.05
 			land_t = 0.0
 	elif jump_state == 3:
@@ -608,8 +608,8 @@ func _physics_process(delta: float) -> void:
 	if not on_floor_now:
 		for i in 2:
 			var jump_side := -1.0 if i == 0 else 1.0
-			var run_jump_offset := sin(run_jump_phase) * 0.22 * jump_side if is_running and jump_state == 2 else 0.0
-			var tuck := hip_global + Vector3(0, -0.84, 0) + forward * run_jump_offset + right * jump_side * 0.09
+			var run_jump_air_offset := sin(run_jump_phase) * 0.22 * jump_side if is_running and jump_state == 2 else 0.0
+			var tuck := hip_global + Vector3(0, -0.84, 0) + forward * run_jump_air_offset + right * jump_side * 0.09
 			foot_planted_pos[i] = foot_planted_pos[i].lerp(tuck, clampf(delta * 8.0, 0.0, 1.0))
 		_was_airborne = true
 	elif _was_airborne:
