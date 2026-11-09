@@ -22,7 +22,7 @@ class_name ProceduralHumanoid
 # order overrides the panel: a real walk is ~1.4 m/s (5 km/h) and a
 # real run ~3.2 m/s, not a sprint.
 const WALK_SPEED := 1.4
-const RUN_SPEED := 3.5
+const RUN_SPEED := 3.8
 const SWING_TIME := 0.38
 const HIP_STIFFNESS := 260.0
 const HIP_DAMPING := 26.0
@@ -408,7 +408,10 @@ func _physics_process(delta: float) -> void:
 				var side0 := -1.0 if i == 0 else 1.0
 				foot_stepping[i] = false
 				foot_step_t[i] = 0.0
+				# Extend the feet toward the floor as contact happens; the hip
+				# absorbs the impact instead of leaving the legs tucked and weightless.
 				land_from[i] = foot_planted_pos[i]
+				land_from[i].y = minf(land_from[i].y, 0.18)
 				land_target[i] = global_position + wish_dir * 0.25 + rgt0 * side0 * STEP_LATERAL + fwd0 * 0.05
 				land_target[i].y = 0.05
 			land_t = 0.0
@@ -416,8 +419,8 @@ func _physics_process(delta: float) -> void:
 		jump_timer -= delta
 		if jump_timer <= 0.0:
 			jump_state = 0
-	var crouch_target := 0.22 if jump_state == 1 else (0.18 if jump_state == 3 else 0.0)
-	jump_crouch = move_toward(jump_crouch, crouch_target, delta * (2.0 if jump_state == 1 else 0.9))
+	var crouch_target := 0.22 if jump_state == 1 else (0.14 if jump_state == 3 else 0.0)
+	jump_crouch = move_toward(jump_crouch, crouch_target, delta * (2.0 if jump_state == 1 else (2.2 if jump_state == 3 else 0.9)))
 
 	# Brake while pressing down and while absorbing the landing: the
 	# feet are planted (crouch) or just re-planted (landing), so the
@@ -588,7 +591,7 @@ func _physics_process(delta: float) -> void:
 	# A foot that starts a step mid-blend is left alone (the step's
 	# from-position picks up wherever the foot currently is).
 	if jump_state == 3:
-		land_t += delta / 0.15
+		land_t += delta / 0.10
 		var lt := _smoothstep(land_t)
 		for i in 2:
 			if not foot_stepping[i]:
@@ -600,7 +603,7 @@ func _physics_process(delta: float) -> void:
 	# — the old snap is what made the jump look like an animation.
 	if not on_floor_now:
 		for i in 2:
-			var tuck := hip_global + Vector3(0, -0.65, 0) + right * (-1.0 if i == 0 else 1.0) * 0.08
+			var tuck := hip_global + Vector3(0, -0.78, 0) + right * (-1.0 if i == 0 else 1.0) * 0.09
 			foot_planted_pos[i] = foot_planted_pos[i].lerp(tuck, clampf(delta * 8.0, 0.0, 1.0))
 		_was_airborne = true
 	elif _was_airborne:
@@ -672,7 +675,7 @@ func _physics_process(delta: float) -> void:
 	# 0.03 walk / a touch more only when running.
 	# A small forward pitch gives running a clear sense of momentum.
 	# Positive X rotation leans the torso toward the character's +Z forward.
-	var forward_lean := 0.025 if not is_running else 0.13
+	var forward_lean := 0.025 if not is_running else 0.18
 	body_root.rotation.x = speed_factor * forward_lean
 	body_root.rotation.z = sin(gait_phase) * 0.02 * speed_factor
 	hip_global = body_root.global_position
