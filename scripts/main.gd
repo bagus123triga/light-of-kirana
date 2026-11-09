@@ -11,6 +11,7 @@ extends Node3D
 const SkyScript := preload("res://scripts/sky.gd")
 const FlyCameraScript := preload("res://scripts/fly_camera.gd")
 const AmbienceScript := preload("res://scripts/ambience.gd")
+const LandmarksScript := preload("res://scripts/landmarks.gd")
 const MAP_PATH := "res://maps/lf_map/map.tscn"
 const TILES_JSON_PATH := "res://maps/lf_map/tiles.json"
 
@@ -21,6 +22,11 @@ func _ready() -> void:
 	var map_instance := map_scene.instantiate()
 	map_instance.name = "LFMap"
 	add_child(map_instance)
+	# Landmark (desa, kincir, menara, gua, kuil kristal, jembatan, gerbang).
+	var landmarks := Node3D.new()
+	landmarks.name = "Landmarks"
+	landmarks.set_script(LandmarksScript)
+	add_child(landmarks)
 	# Langit stylized + siklus hari.
 	var sky := Node3D.new()
 	sky.name = "Sky"
