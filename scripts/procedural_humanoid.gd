@@ -62,6 +62,7 @@ var is_running := false
 var is_on_stairs := false
 var stair_up_direction := Vector3.UP
 var stair_next_foot := 0
+var stair_step_distance := 0.28
 var want_jump := false
 var test_mode := false
 
@@ -298,12 +299,14 @@ func _is_crossed(i: int, right: Vector3) -> bool:
 	var lateral := (foot_planted_pos[i] - global_position).dot(right)
 	return (i == 0 and lateral > -0.03) or (i == 1 and lateral < 0.03)
 
-func set_stair_state(active: bool, up_direction: Vector3 = Vector3.UP) -> void:
+func set_stair_state(active: bool, up_direction: Vector3 = Vector3.UP, step_depth: float = 0.28) -> void:
+	var was_on_stairs := is_on_stairs
 	is_on_stairs = active
-	if active and not is_on_stairs:
+	if active and not was_on_stairs:
 		stair_next_foot = 0
 	if active and up_direction.length() > 0.01:
 		stair_up_direction = up_direction.normalized()
+		stair_step_distance = maxf(step_depth, 0.12)
 
 
 func _foot_ground_y(point: Vector3) -> float:
@@ -390,7 +393,7 @@ func _try_step_up(horizontal_delta: Vector3) -> bool:
 
 func _physics_process(delta: float) -> void:
 	time_alive += delta
-	var speed_max := RUN_SPEED if is_running else WALK_SPEED
+	var speed_max := 0.68 if is_on_stairs else (RUN_SPEED if is_running else WALK_SPEED)
 	var speed_factor := clampf(wish_dir.length(), 0.0, 1.0)
 	var speed := speed_max * speed_factor
 	# Smooth the speed toward its target (accelerate 6 m/s^2, brake
@@ -551,7 +554,7 @@ func _physics_process(delta: float) -> void:
 	var stride_max := 0.32 if is_on_stairs else (0.45 if not is_running else RUN_STRIDE)
 	var stride_rate := 0.25 if is_on_stairs else (0.32 if not is_running else 0.58)
 	var stride := clampf(speed * stride_rate, 0.14, stride_max)
-	var swing := 0.46 if is_on_stairs else (RUN_SWING if is_running else (clampf(stride / maxf(speed, 0.5), 0.16, SWING_TIME) if moving else SWING_TIME))
+	var swing := 0.36 if is_on_stairs else (RUN_SWING if is_running else (clampf(stride / maxf(speed, 0.5), 0.16, SWING_TIME) if moving else SWING_TIME))
 
 	# Push-off lift (run): flight_timer is now set when a foot TOES OFF
 	# (starts its swing) while the other foot is also in the air — the
@@ -589,7 +592,7 @@ func _physics_process(delta: float) -> void:
 				foot_target_pos[i] = global_position + horizontal_motion * swing_remaining + step_forward * (landing_lead + 0.05) + step_right * swing_side * STEP_LATERAL
 			var t := _smoothstep(foot_step_t[i])
 			var pos := foot_from_pos[i].lerp(foot_target_pos[i], t)
-			var clearance := (0.22 if wish_dir.dot(stair_up_direction) > 0.0 else 0.12) if is_on_stairs else (FOOT_CLEARANCE if not is_running else RUN_FOOT_CLEARANCE)
+			var clearance := 0.24 if is_on_stairs else (FOOT_CLEARANCE if not is_running else RUN_FOOT_CLEARANCE)
 			# ROOT CAUSE of the landing "nyedat" (Bagus, 2026-11-09):
 			# the old formula forced pos.y onto the ground arc
 			# (0.05 + sin*clearance), which assumes the foot starts
@@ -632,11 +635,12 @@ func _physics_process(delta: float) -> void:
 				# not a fixed world-space point the body can run past.
 				var target: Vector3
 				if is_on_stairs:
-					# Advance roughly one tread per step, with a small lateral
-					# offset to keep the feet on their own side of the staircase.
+					# Use the actual travel direction: uphill follows the stair
+					# axis, downhill reverses it. Each foot advances one tread.
 					var stair_forward := Vector3(stair_up_direction.x, 0.0, stair_up_direction.z).normalized()
 					var stair_right := Vector3(stair_forward.z, 0.0, -stair_forward.x)
-					target = foot_planted_pos[i] + stair_forward * 0.30 + stair_right * side * 0.015
+					var stair_direction := stair_forward if wish_dir.dot(stair_up_direction) >= 0.0 else -stair_forward
+					target = foot_planted_pos[i] + stair_direction * stair_step_distance * 0.90 + stair_right * side * 0.015
 					target.y = _foot_ground_y(target)
 				else:
 					target = global_position + horizontal_motion * swing + step_forward * (landing_lead + 0.05) + step_right * side * STEP_LATERAL

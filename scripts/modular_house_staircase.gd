@@ -105,7 +105,7 @@ func _stair_up_direction() -> Vector3:
 
 func _on_stair_body_entered(body: Node3D) -> void:
 	if body.has_method("set_stair_state"):
-		body.set_stair_state(true, _stair_up_direction())
+		body.set_stair_state(true, _stair_up_direction(), tread_depth)
 
 
 func _on_stair_body_exited(body: Node3D) -> void:
