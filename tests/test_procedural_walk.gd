@@ -75,34 +75,65 @@ func _init() -> void:
 	# Also (Bagus, 2026-11-09): the two feet must ALTERNATE, never
 	# both start stepping together; and no foot may point more than
 	# 45 degrees away from the body facing.
+	# Run physics (Bagus, 2026-11-09): BIG steps + strong push, NOT
+	# fast feet — cadence must be ~2.9 steps/s (5-7 steps in 2 s),
+	# not the old 4+/s shuffle.
 	var run_start := humanoid.position
+	var run_steps_before := humanoid.steps_taken
 	humanoid.is_running = true
 	humanoid.foot_clamp_count = 0
 	var bad_overlap := 0
 	var max_yaw_err := 0.0
-	var prev_stepping := [false, false]
+	# Init from the ACTUAL state: a foot can already be mid-step from
+	# the walk phase when the run loop starts, and counting that as a
+	# fresh start flags a phantom overlap.
+	var prev_stepping := [humanoid.foot_stepping[0], humanoid.foot_stepping[1]]
 	for i in 120:
 		humanoid._physics_process(1.0 / 60.0)
 		# A foot may only START stepping while the other is already
-		# past 60% of its swing — starting together is the bug.
+		# past 75% of its swing — starting together is the bug.
 		for f in 2:
 			if humanoid.foot_stepping[f] and not prev_stepping[f]:
 				var o := 1 - f
-				if humanoid.foot_stepping[o] and humanoid.foot_step_t[o] < 0.6:
+				if humanoid.foot_stepping[o] and humanoid.foot_step_t[o] < 0.75:
 					bad_overlap += 1
 			prev_stepping[f] = humanoid.foot_stepping[f]
 		for f in 2:
 			max_yaw_err = maxf(max_yaw_err, absf(wrapf(humanoid.foot_yaw[f] - humanoid.facing_yaw, -PI, PI)))
 	var run_moved := (humanoid.position - run_start).length()
+	var run_steps := humanoid.steps_taken - run_steps_before
 	if run_moved < 5.0:
 		failures.append("run moved too little: %.2f m in 2 s" % run_moved)
+	if run_steps < 4 or run_steps > 8:
+		failures.append("run cadence wrong: %d steps in 2 s (want 5-7, ~2.9/s)" % run_steps)
 	if humanoid.foot_clamp_count > 20:
 		failures.append("run dragged feet: ankle clamped %d times in 2 s" % humanoid.foot_clamp_count)
 	if bad_overlap > 0:
 		failures.append("run: both feet stepped together on %d frames" % bad_overlap)
 	if max_yaw_err > deg_to_rad(46.0):
 		failures.append("run: foot yaw %.1f deg off facing, max is 45" % rad_to_deg(max_yaw_err))
-	print("RUN_CLAMP_TEST clamps=%d bad_overlap=%d max_yaw_err=%.1f deg" % [humanoid.foot_clamp_count, bad_overlap, rad_to_deg(max_yaw_err)])
+	print("RUN_CLAMP_TEST clamps=%d bad_overlap=%d max_yaw_err=%.1f deg run_steps=%d (%.1f/s)" % [humanoid.foot_clamp_count, bad_overlap, rad_to_deg(max_yaw_err), run_steps, run_steps / 2.0])
+
+	# 3c. Feet must NEVER cross the midline (Bagus, 2026-11-09):
+	# walk, turn right, turn back, stop. A planted foot that ends up
+	# on the other side must take a recovery step to its own side
+	# instead of staying crossed.
+	humanoid.is_running = false
+	var turn_bad := 0
+	var turn_dirs := [Vector3(1, 0, 0), Vector3(0, 0, 1), Vector3.ZERO]
+	for dir in turn_dirs:
+		humanoid.wish_dir = dir
+		for i in 60:
+			humanoid._physics_process(1.0 / 60.0)
+			var rgt := Vector3(cos(humanoid.facing_yaw), 0, -sin(humanoid.facing_yaw))
+			for f in 2:
+				if not humanoid.foot_stepping[f]:
+					var lat := (humanoid.foot_planted_pos[f] - humanoid.global_position).dot(rgt)
+					if (f == 0 and lat > -0.02) or (f == 1 and lat < 0.02):
+						turn_bad += 1
+	if turn_bad > 0:
+		failures.append("turn: planted foot crossed the midline on %d frames" % turn_bad)
+	print("TURN_TEST crossed_frames=%d" % turn_bad)
 
 	# Remove the test humanoid BEFORE the main scene: two
 	# CharacterBody3Ds at the same origin overlap, and the physics
@@ -160,16 +191,36 @@ func _init() -> void:
 		hum3.want_jump = true
 		var peak_y := y0
 		var min_hip := 10.0
-		for i in 50:
+		# Landing smoothness (Bagus, 2026-11-09 — "nyedat dikit"): no
+		# foot may move more than 0.2 m in a single frame. The old
+		# landing snap teleported the feet 0.3-0.5 m in one frame.
+		var max_foot_step := 0.0
+		var max_foot_frame := -1
+		var max_foot_state := -1
+		var max_foot_from := Vector3.ZERO
+		var max_foot_to := Vector3.ZERO
+		var prev_feet := [hum3.foot_planted_pos[0], hum3.foot_planted_pos[1]]
+		for i in 70:
 			await physics_frame
 			peak_y = maxf(peak_y, hum3.position.y)
 			if i < 12:
 				min_hip = minf(min_hip, hum3.hip_y)
+			for f in 2:
+				var d: float = (hum3.foot_planted_pos[f] - prev_feet[f]).length()
+				if d > max_foot_step:
+					max_foot_step = d
+					max_foot_frame = i
+					max_foot_state = hum3.jump_state
+					max_foot_from = prev_feet[f]
+					max_foot_to = hum3.foot_planted_pos[f]
+				prev_feet[f] = hum3.foot_planted_pos[f]
 		if min_hip > 0.92:
 			failures.append("jump did not press down first (min hip_y in crouch=%.2f, want <0.92)" % min_hip)
 		if peak_y <= y0 + 0.3:
 			failures.append("main scene: jump did not lift the humanoid (peak y=%.2f, start y=%.2f)" % [peak_y, y0])
-		print("JUMP_TEST start_y=%.2f peak_y=%.2f min_hip_crouch=%.2f" % [y0, peak_y, min_hip])
+		if max_foot_step > 0.2:
+			failures.append("jump landing hitched: a foot moved %.2f m in one frame (frame %d, jump_state %d, from %s to %s, want <0.2)" % [max_foot_step, max_foot_frame, max_foot_state, max_foot_from, max_foot_to])
+		print("JUMP_TEST start_y=%.2f peak_y=%.2f min_hip_crouch=%.2f max_foot_step=%.2f frame=%d state=%d from=%s to=%s" % [y0, peak_y, min_hip, max_foot_step, max_foot_frame, max_foot_state, max_foot_from, max_foot_to])
 
 	# 6b. A LOMPAT press mid-air must be DROPPED, not queued
 	# (regression for 2026-11-09 21:36: the jump kept re-firing on
@@ -226,21 +277,29 @@ func _init() -> void:
 		await physics_frame
 	hum4.want_jump = true
 	var min_hip_after := 10.0
+	var max_hip_after := 0.0
 	var max_foot_horiz := 0.0
 	for i in 180:
 		await physics_frame
 		if i > 60:
 			min_hip_after = minf(min_hip_after, hum4.hip_y)
+			max_hip_after = maxf(max_hip_after, hum4.hip_y)
 			for f in 2:
 				var d := Vector2(hum4.foot_planted_pos[f].x - hum4.global_position.x, hum4.foot_planted_pos[f].z - hum4.global_position.z).length()
 				max_foot_horiz = maxf(max_foot_horiz, d)
 	if hum4.position.y > 0.05:
 		failures.append("run+jump: still airborne after 3 s (y=%.2f)" % hum4.position.y)
-	if min_hip_after < 0.8:
+	# Run gait dips the hip to ~0.81 at toe-off (longer stride), so
+	# the floor is 0.75 — the sitting state pins it at 0.60. The hip
+	# must also RISE above 0.88 afterwards (push-off), which the
+	# sitting state never does.
+	if min_hip_after < 0.75:
 		failures.append("run+jump: hip never recovered, min hip_y=%.2f (sitting)" % min_hip_after)
+	if max_hip_after < 0.88:
+		failures.append("run+jump: hip never rose after landing, max hip_y=%.2f" % max_hip_after)
 	if max_foot_horiz > 0.85:
 		failures.append("run+jump: foot stayed %.2f m from body (legs stretched)" % max_foot_horiz)
-	print("RUNJUMP_TEST y=%.2f min_hip_after=%.2f max_foot_horiz=%.2f" % [hum4.position.y, min_hip_after, max_foot_horiz])
+	print("RUNJUMP_TEST y=%.2f min_hip_after=%.2f max_hip_after=%.2f max_foot_horiz=%.2f" % [hum4.position.y, min_hip_after, max_hip_after, max_foot_horiz])
 
 	print("WALK_TEST hip_y=%.2f steps=%d walked=%.2f m ran=%.2f m planted_err=%.3f" % [final_hip_y, final_steps, moved, run_moved, max_planted_err])
 	if failures.is_empty():

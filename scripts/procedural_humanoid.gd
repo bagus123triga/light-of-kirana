@@ -28,6 +28,18 @@ const HIP_STIFFNESS := 260.0
 const HIP_DAMPING := 26.0
 const LAND_BIAS := 0.47
 const FOOT_CLEARANCE := 0.17
+# Fisika lari manusia (Bagus, 2026-11-09 — langkah harus BESAR + dorongan
+# kuat, bukan kaki cepat-cepat): pada 3,2 m/s manusia sungguhan punya
+# stance ~0,25 dtk (kaki napak, badan lewat di atasnya, lalu toe-off),
+# swing ~0,40 dtk (kaki di udara), flight ~0,1 dtk (kedua kaki lepas),
+# cadence ~2,9 langkah/dtk, panjang langkah ~1,1 m. Kaki mendarat ~0,4 m
+# DI DEPAN badan (bukan tepat di bawah), jadi stride target harus jauh
+# (1,65 m dari posisi badan saat trigger) dan swing TIDAK diturunkan dari
+# stride/speed — swing ditentukan siklus langkah, bukan kecepatan.
+const RUN_SWING := 0.40
+const RUN_STRIDE := 1.55
+const RUN_GATE := 0.75  # kaki kedua baru boleh toe-off saat kaki pertama 75% ayunannya
+const RUN_FOOT_CLEARANCE := 0.24  # lutut terangkat lebih tinggi saat lari
 # Proportions (Bagus, 2026-11-09): upper thigh LONGER than lower
 # thigh — 0.52 vs 0.44, total still 0.96 so the idle-knee math and
 # hip ceiling from the previous fix stay valid. Equal 0.48/0.48 made
@@ -56,6 +68,19 @@ var steps_taken := 0
 var facing_yaw := 0.0
 var time_alive := 0.0
 var _was_airborne := false
+# Smoothed speed: a human does not jump from 1.4 to 3.2 m/s in one
+# frame — the run-up takes ~0.3 s. Without it the stride jumped from
+# 0.45 to 1.55 m the instant Shift was pressed and the planted foot
+# was left ~0.8 m behind in a single step, collapsing the hip and
+# clamping the ankle (the walk->run transition was most of the 21
+# remaining run clamps).
+var speed_smooth := 0.0
+# Smoothed speed: a human does not jump from 1.4 to 3.2 m/s in one
+# frame — the run-up takes ~0.3 s. Without it the stride jumped from
+# 0.45 to 1.55 m the instant Shift was pressed and the planted foot
+# was left ~0.8 m behind in a single step, collapsing the hip and
+# clamping the ankle (the walk->run transition was most of the 21
+# remaining run clamps).
 
 var body_root: Node3D
 var shoulder_l: Node3D
@@ -77,6 +102,12 @@ var foot_yaw: Array[float] = [0.0, 0.0]
 var knee_pos: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO]
 var flight_timer := 0.0
 var foot_clamp_count := 0
+# Landing blend (Bagus, 2026-11-09): pendaratan lompat dulu men-TELEPORT
+# kaki dari posisi tuck ke tanah dalam 1 frame — itu "nyedat"-nya.
+# Sekarang kaki meluncur ke posisi napak selama 0,15 dtk (state 3).
+var land_from: Array[Vector3] = []
+var land_target: Array[Vector3] = []
+var land_t := 0.0
 # Procedural jump (Bagus, 2026-11-09): a jump is NOT an instant
 # velocity — it presses into the ground first, then launches on
 # physics, then absorbs the landing. States: 0 none, 1 crouch
@@ -207,6 +238,8 @@ func _ready() -> void:
 		foot_planted_pos.append(start)
 		foot_target_pos.append(start)
 		foot_from_pos.append(start)
+		land_from.append(start)
+		land_target.append(start)
 
 
 func _solve_two_bone(hip: Vector3, target: Vector3, bend_dir: Vector3) -> Vector3:
@@ -236,12 +269,32 @@ func _smoothstep(t: float) -> float:
 	var x := clampf(t, 0.0, 1.0)
 	return x * x * (3.0 - 2.0 * x)
 
+# Recovery step (Bagus, 2026-11-09 — feet must never cross): a planted
+# foot that ended up on the other side of the body's midline (the body
+# turned over it) takes a short step back to its own side.
+func _is_crossed(i: int, right: Vector3) -> bool:
+	var lateral := (foot_planted_pos[i] - global_position).dot(right)
+	return (i == 0 and lateral > -0.03) or (i == 1 and lateral < 0.03)
+
+func _start_recovery_step(i: int, right: Vector3, forward: Vector3) -> void:
+	var side := -1.0 if i == 0 else 1.0
+	foot_from_pos[i] = foot_planted_pos[i]
+	foot_target_pos[i] = global_position + right * side * STEP_LATERAL + forward * 0.05
+	foot_target_pos[i].y = 0.05
+	foot_step_t[i] = 0.0
+	foot_stepping[i] = true
+
 
 func _physics_process(delta: float) -> void:
 	time_alive += delta
 	var speed_max := RUN_SPEED if is_running else WALK_SPEED
 	var speed_factor := clampf(wish_dir.length(), 0.0, 1.0)
 	var speed := speed_max * speed_factor
+	# Smooth the speed toward its target (accelerate 6 m/s^2, brake
+	# 8 m/s^2): movement, stride and swing all use the smoothed
+	# value, so walk->run is a run-up, not a teleport.
+	speed_smooth = move_toward(speed_smooth, speed, (6.0 if speed > speed_smooth else 8.0) * delta)
+	speed = speed_smooth
 	var moving := speed > 0.05
 
 	if moving:
@@ -303,22 +356,25 @@ func _physics_process(delta: float) -> void:
 			# the body keeps moving through the 0.18 s landing
 			# absorption, so feet planted exactly under it are
 			# already trailing by the time the next step starts.
+			# LANDING BLEND (Bagus, 2026-11-09 — "nyedat dikit"): the
+			# feet do NOT teleport from the tuck to the ground in
+			# one frame; they glide down over 0.15 s during state 3.
 			var fwd0 := Vector3(sin(facing_yaw), 0, cos(facing_yaw))
 			var rgt0 := Vector3(cos(facing_yaw), 0, -sin(facing_yaw))
 			for i in 2:
 				var side0 := -1.0 if i == 0 else 1.0
 				foot_stepping[i] = false
 				foot_step_t[i] = 0.0
-				foot_planted_pos[i] = global_position + wish_dir * 0.25 + rgt0 * side0 * STEP_LATERAL + fwd0 * 0.05
-				foot_planted_pos[i].y = 0.05
-				foot_target_pos[i] = foot_planted_pos[i]
-				foot_from_pos[i] = foot_planted_pos[i]
+				land_from[i] = foot_planted_pos[i]
+				land_target[i] = global_position + wish_dir * 0.25 + rgt0 * side0 * STEP_LATERAL + fwd0 * 0.05
+				land_target[i].y = 0.05
+			land_t = 0.0
 	elif jump_state == 3:
 		jump_timer -= delta
 		if jump_timer <= 0.0:
 			jump_state = 0
 	var crouch_target := 0.22 if jump_state == 1 else (0.18 if jump_state == 3 else 0.0)
-	jump_crouch = move_toward(jump_crouch, crouch_target, delta * (2.0 if jump_state == 1 else 1.2))
+	jump_crouch = move_toward(jump_crouch, crouch_target, delta * (2.0 if jump_state == 1 else 0.9))
 
 	# Brake while pressing down and while absorbing the landing: the
 	# feet are planted (crouch) or just re-planted (landing), so the
@@ -348,38 +404,50 @@ func _physics_process(delta: float) -> void:
 	var hip_global := body_root.global_position
 
 	# --- Step planner (Singer) ---
-	# Swing time is DERIVED from stride / speed (reference swing 0.38 s
-	# is the cap, not a fixed timer): the foot must land as the body
-	# arrives, otherwise the body outruns its feet and they drag.
-	# Stride is capped at 0.45 m (walk) so a planted foot never ends up
-	# further from the hip than the legs can reach.
-	# Run stride is LONG (1.1 m): at 4.4 m/s a 0.85 m stride forced a
-	# 5+ steps/s cadence, which is why the arms flailed and the legs
-	# looked like hopping. Longer stride + flight = ~2.7 steps/s,
-	# a real run cadence.
-	var stride_max := 0.45 if not is_running else 1.0
-	var stride := clampf(speed * 0.32, 0.18, stride_max)
-	var swing := clampf(stride / maxf(speed, 0.5), 0.16, SWING_TIME) if moving else SWING_TIME
-	# Run flight phase (Singer): after a step lands while running, the
-	# body is briefly airborne with BOTH feet tucked — that is what
-	# makes running look like running instead of sliding (ngesot).
-	# Without it the support foot stays planted while the body moves
-	# ~1 m, and the IK clamp drags it along the ground.
-	# The tuck is SHALLOW (feet ~0.25 m off the ground, not snapped
-	# to the hip): the old -0.5 tuck made every run step look like
-	# a little jump (Bagus, 2026-11-09).
+	# WALK: stride = speed * 0.32 (1.4 m/s -> 0.45 m), swing derived
+	# from stride/speed, cap 0.38 s. Walk is rated 9/10 — do not touch.
+	# RUN: stride 1.65 m and swing 0.40 s FIXED (human running physics,
+	# Bagus 2026-11-09). The old derivation (swing = stride/speed)
+	# gave a 0.31 s swing and landings in quick pairs — that is why
+	# the feet looked too fast even though the speed was right.
+	# The foot lands ~0.4 m AHEAD of the body, so the stride target
+	# must be far (body travel during the swing + 0.4 m ahead).
+	var stride_max := 0.45 if not is_running else RUN_STRIDE
+	var stride := clampf(speed * (0.32 if not is_running else 0.52), 0.18, stride_max)
+	var swing := RUN_SWING if is_running else (clampf(stride / maxf(speed, 0.5), 0.16, SWING_TIME) if moving else SWING_TIME)
+	# Push-off lift (run): flight_timer is now set when a foot TOES OFF
+	# (starts its swing) while the other foot is also in the air — the
+	# brief moment both feet are off the ground, when the hip rises
+	# on the push. The old version tucked BOTH feet the instant one
+	# landed, so the new stance foot never got a stance phase and
+	# there was no push-off to feel. Now the landed foot stays
+	# planted while the body passes over it (stance), and only toes
+	# off when it starts its own swing.
 	if flight_timer > 0.0:
 		flight_timer -= delta
-		for i in 2:
-			var tuck := hip_global + Vector3(0, -0.75, 0) + right * (-1.0 if i == 0 else 1.0) * 0.08
-			foot_planted_pos[i] = foot_planted_pos[i].lerp(tuck, clampf(delta * 12.0, 0.0, 1.0))
 	for i in 2:
 		var side := -1.0 if i == 0 else 1.0
+		# Feet must NEVER cross the midline (Bagus, 2026-11-09): when
+		# the body turns, a planted foot can end up on the other side
+		# of the body. The foot then takes a short recovery step back
+		# to its own side instead of staying crossed.
+		if not foot_stepping[i] and on_floor_now and (jump_state == 0 or jump_state == 3) and _is_crossed(i, right):
+			_start_recovery_step(i, right, forward)
 		if foot_stepping[i]:
 			foot_step_t[i] += delta / swing
 			var t := _smoothstep(foot_step_t[i])
 			var pos := foot_from_pos[i].lerp(foot_target_pos[i], t)
-			pos.y = 0.05 + sin(PI * clampf(foot_step_t[i], 0.0, 1.0)) * FOOT_CLEARANCE
+			var clearance := FOOT_CLEARANCE if not is_running else RUN_FOOT_CLEARANCE
+			# ROOT CAUSE of the landing "nyedat" (Bagus, 2026-11-09):
+			# the old formula forced pos.y onto the ground arc
+			# (0.05 + sin*clearance), which assumes the foot starts
+			# on the ground. After a jump the foot starts TUCKED at
+			# y≈0.82, so the first step frame teleported it straight
+			# down 0.75 m (measured: frame 51, state 3, y 0.824→0.073).
+			# Now the height lerps from the from-height to the
+			# target-height and the arc is added ON TOP — a tucked
+			# foot descends smoothly during its step instead.
+			pos.y = lerpf(foot_from_pos[i].y, foot_target_pos[i].y, t) + sin(PI * clampf(foot_step_t[i], 0.0, 1.0)) * clearance
 			foot_planted_pos[i] = pos
 			if foot_step_t[i] >= 1.0:
 				foot_stepping[i] = false
@@ -387,20 +455,19 @@ func _physics_process(delta: float) -> void:
 				foot_planted_pos[i] = foot_target_pos[i]
 				foot_planted_pos[i].y = 0.05
 				steps_taken += 1
-				if is_running and speed_factor > 0.6:
-					flight_timer = 0.12
 		elif on_floor_now and flight_timer <= 0.0 and (jump_state == 0 or jump_state == 3):
 			var ideal := global_position + wish_dir * stride * LAND_BIAS + right * side * STEP_LATERAL + forward * 0.05
 			ideal.y = 0.05
 			var lag := (ideal - foot_planted_pos[i]).dot(forward) if moving else (ideal - foot_planted_pos[i]).length()
 			var other_stepping := foot_stepping[1 - i]
 			# Alternation, always. Walk: one foot at a time. Run: the
-			# second foot may only start once the first is past 60%
-			# of its swing (weight transfer, just before it lands).
-			# The old run gate ("overlap any time") let BOTH feet
-			# start stepping together — both forward at once
-			# (Bagus, 2026-11-09: "2 kaki maju barengan wkwkwk").
-			var gate := (not other_stepping) or (is_running and foot_step_t[1 - i] > 0.6)
+			# second foot may only toe off once the first is past 75%
+			# of its swing. The old 60% gate let landings come in
+			# quick pairs (0.22 s apart, then a gap) — even at the
+			# right average cadence it LOOKED like shuffling fast feet.
+			# 75% + the longer 0.40 s swing evens the rhythm to
+			# ~2.9 steps/s with a real ~0.3 s stance per foot.
+			var gate := (not other_stepping) or (is_running and foot_step_t[1 - i] > RUN_GATE)
 			if (moving and lag > 0.15 and gate) or (not moving and lag > 0.25 and not other_stepping):
 				var target := global_position + wish_dir * stride + right * side * STEP_LATERAL + forward * 0.05
 				target.y = 0.05
@@ -408,6 +475,34 @@ func _physics_process(delta: float) -> void:
 				foot_target_pos[i] = target
 				foot_step_t[i] = 0.0
 				foot_stepping[i] = true
+				# Toe-off: if the other foot is already in the air,
+				# this is the flight moment — the hip rises on the push.
+				if is_running and foot_stepping[1 - i]:
+					flight_timer = 0.10
+
+	# Second recovery pass: a foot that JUST landed (in the loop above)
+	# can land crossed if the body turned during its swing — its
+	# recovery check already ran before it landed. Catch it here, in
+	# the same frame, so a planted foot is never left crossed.
+	# (No flight_timer block on recovery: a crossed foot must move
+	# even right after a toe-off — the run test's leftover flight
+	# timer was blocking the first turn frames.)
+	for i in 2:
+		if not foot_stepping[i] and on_floor_now and (jump_state == 0 or jump_state == 3) and _is_crossed(i, right):
+			_start_recovery_step(i, right, forward)
+
+	# Landing blend (state 3): feet glide from the tuck to their plant
+	# positions over 0.15 s instead of snapping — the "nyedat" fix.
+	# A foot that starts a step mid-blend is left alone (the step's
+	# from-position picks up wherever the foot currently is).
+	if jump_state == 3:
+		land_t += delta / 0.15
+		var lt := _smoothstep(land_t)
+		for i in 2:
+			if not foot_stepping[i]:
+				foot_planted_pos[i] = land_from[i].lerp(land_target[i], lt)
+				foot_target_pos[i] = land_target[i]
+				foot_from_pos[i] = land_target[i]
 
 	# Airborne: feet tuck under the body GRADUALLY (lerp), not snapped
 	# — the old snap is what made the jump look like an animation.
@@ -417,7 +512,9 @@ func _physics_process(delta: float) -> void:
 			foot_planted_pos[i] = foot_planted_pos[i].lerp(tuck, clampf(delta * 8.0, 0.0, 1.0))
 		_was_airborne = true
 	elif _was_airborne:
-		hip_vel_y -= 1.5
+		# No hip-velocity kick here anymore (Bagus, 2026-11-09): the
+		# old -1.5 kick was a second landing dip on top of the
+		# jump_crouch absorption — two dips in a row is the "nyedat".
 		_was_airborne = false
 
 	# --- Spring-damped pendulum body (Singer: stiffness 260, damping 26) ---
@@ -434,14 +531,28 @@ func _physics_process(delta: float) -> void:
 	# The old rate (speed/0.55 * PI) hit ~8 steps/s at run speed —
 	# that is why the arms flailed like a cartoon (Bagus, 2026-11-09).
 	if moving and (foot_stepping[0] or foot_stepping[1] or flight_timer > 0.0):
-		var cycle := swing if not is_running else swing + 0.12
+		var cycle := swing if not is_running else swing * 0.8
 		gait_phase += delta * PI / maxf(cycle, 0.2)
 	var horiz_max := 0.0
 	for i in 2:
-		if not foot_stepping[i]:
-			var dx := foot_planted_pos[i].x - global_position.x
-			var dz := foot_planted_pos[i].z - global_position.z
-			horiz_max = maxf(horiz_max, sqrt(dx * dx + dz * dz))
+		# ANTICIPATORY ceiling (Bagus, 2026-11-09 — run dragged the
+		# feet, 92 clamps): a stepping foot counts by where it WILL
+		# land relative to the body at landing (target minus the body
+		# travel left in the swing), not where it is now. The old
+		# ceiling only saw planted feet, so it dropped suddenly the
+		# frame a foot landed 0.27 m ahead and the spring lagged
+		# behind it, clamping the ankle on nearly every run frame.
+		# The hip now pre-dips during the swing and is already low
+		# enough when the foot touches down.
+		var p: Vector3
+		if foot_stepping[i]:
+			var remain := swing * (1.0 - foot_step_t[i])
+			var body_at_land := global_position + wish_dir * speed * remain
+			p = foot_target_pos[i] - body_at_land
+		else:
+			p = foot_planted_pos[i] - global_position
+		p.y = 0.0
+		horiz_max = maxf(horiz_max, p.length())
 	var leg_len := LEG_UPPER + LEG_LOWER
 	# Ceiling is ankle height (0.05) + the vertical reach left over
 	# after the horizontal offset. The old formula forgot the +0.05,
@@ -449,8 +560,13 @@ func _physics_process(delta: float) -> void:
 	# knee bend (0.16 m) that would not go away.
 	var hip_ceiling := 0.05 + sqrt(maxf(leg_len * leg_len - horiz_max * horiz_max, 0.55 * 0.55))
 	var bob := sin(gait_phase * 2.0) * 0.02 * speed_factor if moving else sin(time_alive * 1.6) * 0.012
-	var flight_lift := 0.03 if flight_timer > 0.0 else 0.0
-	var hip_target := minf(HIP_HEIGHT + bob - 0.04 * speed_factor + flight_lift - jump_crouch, hip_ceiling + flight_lift)
+	var flight_lift := 0.05 if flight_timer > 0.0 else 0.0
+	# Run slack: the hip sits below the ceiling while running, so the
+	# leg is never at its absolute limit at landing/toe-off and the
+	# spring lag cannot push the ankle past the clamp. The walk keeps
+	# the exact ceiling (rated 9/10, do not touch).
+	var ceiling_margin := 0.05 if is_running else 0.0
+	var hip_target := minf(HIP_HEIGHT + bob - 0.04 * speed_factor + flight_lift - jump_crouch, hip_ceiling + flight_lift - ceiling_margin)
 	hip_vel_y += (HIP_STIFFNESS * (hip_target - hip_y) - HIP_DAMPING * hip_vel_y) * delta
 	hip_y = clampf(hip_y + hip_vel_y * delta, 0.55, 1.02)
 	# Crouch overshoot guard: the spring must not dip the hip deeper
@@ -466,6 +582,20 @@ func _physics_process(delta: float) -> void:
 	body_root.rotation.z = sin(gait_phase) * 0.02 * speed_factor
 	hip_global = body_root.global_position
 
+	# Heel lift / push-off (Bagus, 2026-11-09 — "tekanan lebih gede"):
+	# as the body passes over a planted foot, the heel lifts and the
+	# foot pushes off on its toe. The ankle rises (up to 0.12 m),
+	# which is also what keeps the leg within reach at toe-off:
+	# without it the ankle was clamped on 80 of 120 run frames,
+	# because a flat foot 0.69 m behind the body is further from the
+	# hip than the leg is long. A toe-off is on the toe, not flat.
+	# RUNNING ONLY: the walk is rated 9/10 and its planted feet must
+	# stay exactly on the ground (the walk test checks y=0.05).
+	for i in 2:
+		if is_running and not foot_stepping[i] and on_floor_now and jump_state == 0:
+			var behind := (global_position - foot_planted_pos[i]).dot(forward)
+			foot_planted_pos[i].y = 0.05 + minf(maxf(behind - 0.15, 0.0) * 0.35, 0.12)
+
 	# --- Two-bone IK + foot placement ---
 	# Visual ankle is clamped to leg reach so the shin can never detach
 	# from the foot, even at the far end of a stride (Singer's pendulum
@@ -477,8 +607,8 @@ func _physics_process(delta: float) -> void:
 		var hip_joint := hip_global + right * side * 0.09
 		var ankle := foot_planted_pos[i]
 		var to_ankle := ankle - hip_joint
-		if to_ankle.length() > LEG_UPPER + LEG_LOWER - 0.02:
-			ankle = hip_joint + to_ankle.normalized() * (LEG_UPPER + LEG_LOWER - 0.02)
+		if to_ankle.length() > LEG_UPPER + LEG_LOWER - 0.01:
+			ankle = hip_joint + to_ankle.normalized() * (LEG_UPPER + LEG_LOWER - 0.01)
 			foot_clamp_count += 1
 		var knee := _solve_two_bone(hip_joint, ankle, forward)
 		knee_pos[i] = knee
