@@ -13,7 +13,7 @@ const SUBDIV := 64
 const LAKE_CENTER := Vector2(14.0, 12.0)
 const LAKE_RADIUS := 9.0
 const WATER_LEVEL := -0.25
-const GRASS_COUNT := 30000
+const GRASS_COUNT := 60000
 const TREE_COUNT := 24
 const BOULDER_COUNT := 14
 
@@ -221,38 +221,29 @@ func _create_water() -> void:
 # --- Rumput (hanya di tanah berumput, bukan tanah gundul / batu) ---
 
 func _blade_mesh() -> ArrayMesh:
-	# 2 quad menyilang. Shader repo TIDAK punya discard/taper, jadi
-	# bentuk runcingnya dari GEOMETRI: 3 baris, lebar menyempit ke ujung
-	# (0.12 → 0.08 → 0.03). Bilah tetap LURUS — barisnya buat lancip,
-	# bukan buat melengkung (minta Bagus: lurus aja).
-	# Ukuran direvisi 2026-11-09: 0.06 x 0.6 kekecilan + ketinggian,
-	# jadi dilebarin & dipendekin (0.12 x 0.4).
-	# UV.y = 0 di ujung, 1 di pangkal (syarat repo: displacement
-	# affect = 1.0 - UV.y, ujung paling kena angin).
+	# 2 quad menyilang — shader gameidea mengharapkan quad penuh: UV.x
+	# 0..1 selebar bilah, UV.y = 0 di ujung, 1 di pangkal, biar discard-nya
+	# membentuk bilah yang meruncing. LURUS saja, tanpa segmen lengkung
+	# (minta Bagus 2026-11-09: "lurus aja nggak usah 3 shape").
+	# Bilah TIPIS (lebar 0.06, tinggi 0.5) biar runcing.
+	# Direvisi 2026-11-09: 0.6 dipendekin dikit jadi 0.5 (minta Bagus).
 	var verts := PackedVector3Array()
 	var uvs := PackedVector2Array()
 	var indices := PackedInt32Array()
-	var rows := [0.0, 0.2, 0.4]
-	var row_half_w := [0.06, 0.04, 0.015]
-	var row_uv := [1.0, 0.5, 0.0]
+	var half_w := 0.03
 	var quads := [
-		[Vector3(-1.0, 0.0, 0.0), Vector3(1.0, 0.0, 0.0)],
-		[Vector3(0.0, 0.0, -1.0), Vector3(0.0, 0.0, 1.0)],
+		[Vector3(-half_w, 0.0, 0.0), Vector3(half_w, 0.0, 0.0)],
+		[Vector3(0.0, 0.0, -half_w), Vector3(0.0, 0.0, half_w)],
 	]
 	var base := 0
 	for q in quads:
-		var left_dir: Vector3 = q[0]
-		var right_dir: Vector3 = q[1]
-		var up := Vector3(0.0, 1.0, 0.0)
-		for r in rows.size():
-			verts.append(left_dir * row_half_w[r] + up * rows[r])
-			verts.append(right_dir * row_half_w[r] + up * rows[r])
-			uvs.append(Vector2(0.0, row_uv[r]))
-			uvs.append(Vector2(1.0, row_uv[r]))
-		for r in rows.size() - 1:
-			var b0 := base + r * 2
-			indices.append_array([b0, b0 + 1, b0 + 3, b0, b0 + 3, b0 + 2])
-		base += rows.size() * 2
+		var bl: Vector3 = q[0]
+		var br: Vector3 = q[1]
+		# Kiri-bawah, kanan-bawah, kanan-atas (ujung), kiri-atas (ujung).
+		verts.append_array([bl, br, br + Vector3(0.0, 0.5, 0.0), bl + Vector3(0.0, 0.5, 0.0)])
+		uvs.append_array([Vector2(0.0, 1.0), Vector2(1.0, 1.0), Vector2(1.0, 0.0), Vector2(0.0, 0.0)])
+		indices.append_array([base + 0, base + 1, base + 2, base + 0, base + 2, base + 3])
+		base += 4
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
@@ -280,11 +271,13 @@ func _create_grass() -> void:
 	fnl.frequency = 0.05
 	noise_tex.noise = fnl
 	grass_material.set_shader_parameter("wind_noise", noise_tex)
-	# Nilai angin repo dilunakkan biar bilah tegak lurus & cuma
-	# bergoyang pelan (minta Bagus: angin kekencengan, bilah lurus).
-	# wind_strength repo = 1.0, wind_vertical_strength repo = 0.5.
-	grass_material.set_shader_parameter("wind_strength", 0.35)
-	grass_material.set_shader_parameter("wind_vertical_strength", 0.05)
+	# Angin dilunakkan biar bilah tegak lurus & cuma bergoyang pelan
+	# (minta Bagus: angin kekencengan, bilah harus lurus).
+	grass_material.set_shader_parameter("blade_bend", 0.05)
+	grass_material.set_shader_parameter("gust_strength", 0.3)
+	grass_material.set_shader_parameter("still_sway_strength", 0.06)
+	# Bilah lebih runcing: lebar discard 70% (bawah tidak terlalu besar).
+	grass_material.set_shader_parameter("blade_width", 0.7)
 	var multimesh := MultiMesh.new()
 	multimesh.transform_format = MultiMesh.TRANSFORM_3D
 	multimesh.use_colors = false
