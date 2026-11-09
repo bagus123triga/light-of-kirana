@@ -186,7 +186,7 @@ func _ready() -> void:
 	var shoulders: Array[Node3D] = []
 	for side in [-1.0, 1.0]:
 		var shoulder := Node3D.new()
-		shoulder.position = Vector3(side * 0.17, 0.5, 0)
+		shoulder.position = Vector3(side * 0.20, 0.5, 0)
 		body_root.add_child(shoulder)
 		var upper := _limb(0.043, ARM_UPPER, mat)
 		upper.position = Vector3(0, -ARM_UPPER * 0.5, 0)
@@ -733,8 +733,10 @@ func _physics_process(delta: float) -> void:
 	var swing_amount := sin(gait_phase) * arm_swing * speed_factor
 	shoulder_l.rotation.x = swing_amount
 	shoulder_r.rotation.x = -swing_amount
-	shoulder_l.rotation.z = 0.06
-	shoulder_r.rotation.z = -0.06
+	# Angle the upper arms slightly OUTWARD instead of letting them rest
+	# against the torso. The sign is mirrored for left/right shoulders.
+	shoulder_l.rotation.z = -0.12
+	shoulder_r.rotation.z = 0.12
 	# Elbow: bent ~0.4 rad at rest, flexes a bit more on the forward
 	# swing; wrist keeps the hand roughly level with a small flick.
 	# During the jump crouch the arms pull back with the press.
