@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dlbmw0fcdsgco"
-path="res://.godot/imported/leafy_grass_diff_1k.jpg-357b7be5e308ea0b316ba6846db4e6a2.ctex"
+uid="uid://dwum2jcpdjbbj"
+path="res://.godot/imported/grass004_diff_1k.jpg-b287de958fd57966771958a21c7d3744.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/textures/leafy_grass_diff_1k.jpg"
-dest_files=["res://.godot/imported/leafy_grass_diff_1k.jpg-357b7be5e308ea0b316ba6846db4e6a2.ctex"]
+source_file="res://assets/textures/grass004_diff_1k.jpg"
+dest_files=["res://.godot/imported/grass004_diff_1k.jpg-b287de958fd57966771958a21c7d3744.ctex"]
 
 [params]
 

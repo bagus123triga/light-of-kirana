@@ -205,7 +205,7 @@ func _create_terrain() -> void:
 	# tekstur CC0 Poly Haven per jenis tanah, mask dari COLOR vertex.
 	terrain_material = ShaderMaterial.new()
 	terrain_material.shader = load("res://shaders/terrain.gdshader")
-	terrain_material.set_shader_parameter("grass_tex", load("res://assets/textures/leafy_grass_diff_1k.jpg"))
+	terrain_material.set_shader_parameter("grass_tex", load("res://assets/textures/grass004_diff_1k.jpg"))
 	terrain_material.set_shader_parameter("dirt_tex", load("res://assets/textures/dirt_floor_diff_1k.jpg"))
 	terrain_material.set_shader_parameter("rock_tex", load("res://assets/textures/rock_face_diff_1k.jpg"))
 	mesh_instance.material_override = terrain_material

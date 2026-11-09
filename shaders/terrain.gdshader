@@ -1,8 +1,10 @@
 // LIGHT OF KIRANA — terrain bertekstur (minta Bagus 2026-11-09: tanah
 // terlalu polos; revisi: tekstur kurang bagus -> tambah lapisan detail
-// biar tidak kelihatan berulang). Tekstur CC0 Poly Haven 1K JPG:
-// leafy_grass, dirt_floor, rock_face. Sampling pakai posisi dunia (XZ);
-// COLOR vertex = mask jenis tanah (r=tanah gundul, g=rumput, b=batu).
+// biar tidak kelihatan berulang; revisi 2: tekstur coklat -> ganti rumput
+// ke Grass004 ambientCG yang hijau painterly ala Zelda + tint hijau).
+// Tekstur CC0: Grass004 (ambientCG), dirt_floor + rock_face (Poly Haven).
+// Sampling pakai posisi dunia (XZ); COLOR vertex = mask jenis tanah
+// (r=tanah gundul, g=rumput, b=batu).
 shader_type spatial;
 render_mode diffuse_burley, specular_schlick_ggx;
 
@@ -10,6 +12,8 @@ uniform sampler2D grass_tex : filter_linear_mipmap, repeat_enable;
 uniform sampler2D dirt_tex : filter_linear_mipmap, repeat_enable;
 uniform sampler2D rock_tex : filter_linear_mipmap, repeat_enable;
 uniform float tex_scale = 0.33; // 1 tile per 3 meter
+// Tint hijau lembut biar rumput lebih hidup ala Zelda (hijau kuning).
+uniform vec3 grass_tint : source_color = vec3(1.05, 1.15, 0.9);
 
 varying vec3 world_pos;
 
@@ -27,7 +31,7 @@ void vertex() {
 
 void fragment() {
 	vec2 uv = world_pos.xz * tex_scale;
-	vec3 grass_c = sample_detail(grass_tex, uv);
+	vec3 grass_c = sample_detail(grass_tex, uv) * grass_tint;
 	vec3 dirt_c = sample_detail(dirt_tex, uv);
 	vec3 rock_c = sample_detail(rock_tex, uv);
 	vec3 col = grass_c * COLOR.g + dirt_c * COLOR.r + rock_c * COLOR.b;
