@@ -3,13 +3,15 @@ extends Node
 ## Suara dunia — REKAMAN ASLI dari Mixkit (lisensi gratis Mixkit, boleh
 ## dipakai di proyek/game), bukan sintesis. File di res://assets/audio/:
 ## wind (Wind blowing ambience, 62 dtk), water (Water flowing ambience
-## loop, 51 dtk), birds (Morning birds, potongan 30 dtk), step_grass
-## (Grass step), step_dirt (Footsteps in the forest ground — 1 langkah
-## 0.7 dtk dipotong dari loop), step_rock (Footsteps on stones loop —
-## 1 langkah 0.7 dtk dipotong dari loop), chop (Wood hard hit), fall
-## (Tree branch brake), splash (Water splash).
+## loop, 51 dtk), step_grass (Grass step), step_dirt (Footsteps in the
+## forest ground — 1 langkah 0.7 dtk dipotong dari loop), step_rock
+## (Footsteps on stones loop — 1 langkah 0.7 dtk dipotong dari loop),
+## chop (Wood hard hit), fall (Tree branch brake), splash (Water splash).
+## Suara burung DIHAPUS (minta Bagus 2026-11-09: tidak ada burung).
 ## Langkah tanah/batu tidak ada versi 1-langkah di Mixkit, jadi dipotong
 ## dari loop langkah kaki — kalau terdengar aneh, ganti sumbernya.
+## Angin: SATU nilai dengan goyangan rumput (world.gd) — kadang reda
+## total (suara angin nyaris hilang), kadang berhembus.
 
 var wind_strength := 0.35
 
@@ -21,8 +23,6 @@ var _footsteps := {}
 var _chop_stream: AudioStreamOggVorbis
 var _fall_stream: AudioStreamOggVorbis
 var _splash_stream: AudioStreamOggVorbis
-var _birds_stream: AudioStreamOggVorbis
-var _bird_timer := 8.0
 var _rng := RandomNumberGenerator.new()
 
 
@@ -52,7 +52,6 @@ func _ready() -> void:
 	_chop_stream = load("res://assets/audio/chop.ogg")
 	_fall_stream = load("res://assets/audio/fall.ogg")
 	_splash_stream = load("res://assets/audio/splash.ogg")
-	_birds_stream = load("res://assets/audio/birds.ogg")
 
 
 func _loop_stream(path: String) -> AudioStreamOggVorbis:
@@ -62,13 +61,10 @@ func _loop_stream(path: String) -> AudioStreamOggVorbis:
 
 
 func _process(delta: float) -> void:
-	# Volume angin mengikuti kekuatan angin (nilai yang sama dengan rumput).
-	var target := lerpf(-24.0, -10.0, clampf(wind_strength / 0.7, 0.0, 1.0))
+	# Volume angin mengikuti kekuatan angin yang SAMA dengan rumput.
+	# Angin 0 = reda total → suara nyaris hilang (-40 dB).
+	var target := lerpf(-40.0, -10.0, clampf(wind_strength, 0.0, 1.0))
 	_wind_player.volume_db = lerpf(_wind_player.volume_db, target, delta * 0.5)
-	_bird_timer -= delta
-	if _bird_timer <= 0.0:
-		_bird_timer = _rng.randf_range(20.0, 40.0)
-		_play_one_shot(_birds_stream, -22.0, _rng.randf_range(0.95, 1.05))
 
 
 func set_wind(strength: float) -> void:

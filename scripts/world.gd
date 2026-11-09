@@ -13,7 +13,7 @@ const SUBDIV := 64
 const LAKE_CENTER := Vector2(14.0, 12.0)
 const LAKE_RADIUS := 9.0
 const WATER_LEVEL := -0.25
-const GRASS_COUNT := 12000
+const GRASS_COUNT := 20000
 const TREE_COUNT := 24
 const BOULDER_COUNT := 14
 
@@ -45,11 +45,15 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	# Satu nilai angin untuk suara angin (goyangan rumput diatur shader
-	# gameidea sendiri dari tekstur noise + TIME).
+	# SATU nilai angin untuk semuanya: goyangan rumput (shader) + volume
+	# suara angin. Angin TIDAK terus-menerus — kadang reda total (0),
+	# kadang berhembus kencang (1). Dua sinus berperiode beda biar
+	# polanya tidak berulang monoton.
 	var t := Time.get_ticks_msec() / 1000.0
-	wind_strength = 0.35 + 0.25 * sin(t * 0.13) + 0.12 * sin(t * 0.71 + 1.3)
-	wind_strength = clampf(wind_strength, 0.1, 0.7)
+	var g := sin(t * 0.10) * 0.6 + sin(t * 0.023 + 1.7) * 0.4
+	wind_strength = clampf(g, 0.0, 1.0)
+	if grass_material:
+		grass_material.set_shader_parameter("wind_amount", wind_strength)
 	if _ambience and _ambience.has_method("set_wind"):
 		_ambience.set_wind(wind_strength)
 
@@ -219,17 +223,13 @@ func _create_water() -> void:
 func _blade_mesh() -> ArrayMesh:
 	# 2 quad menyilang — shader gameidea mengharapkan quad penuh: UV.x
 	# 0..1 selebar bilah, UV.y = 0 di ujung, 1 di pangkal, biar discard-nya
-	# membentuk bilah yang meruncing. UKURAN IKUT ARTIKEL: bilah TIPIS
-	# (lebar 0.09, tinggi 0.6).
-	# 3 SEGMEN TINGGI (4 baris verteks): biar bilah bisa MELENGKUNG,
-	# bukan kaku miring seperti tongkat — lengkung shader
-	# (pow(1-UV.y, 2)) baru kelihatan kalau ada verteks di tengah.
+	# membentuk bilah yang meruncing. LURUS saja, tanpa segmen lengkung
+	# (minta Bagus 2026-11-09: "lurus aja nggak usah 3 shape").
+	# Bilah TIPIS (lebar 0.06, tinggi 0.6) biar runcing.
 	var verts := PackedVector3Array()
 	var uvs := PackedVector2Array()
 	var indices := PackedInt32Array()
-	var half_w := 0.045
-	var rows := [0.0, 0.2, 0.4, 0.6]
-	var row_uv := [1.0, 0.667, 0.333, 0.0]
+	var half_w := 0.03
 	var quads := [
 		[Vector3(-half_w, 0.0, 0.0), Vector3(half_w, 0.0, 0.0)],
 		[Vector3(0.0, 0.0, -half_w), Vector3(0.0, 0.0, half_w)],
@@ -238,16 +238,11 @@ func _blade_mesh() -> ArrayMesh:
 	for q in quads:
 		var bl: Vector3 = q[0]
 		var br: Vector3 = q[1]
-		var up := Vector3(0.0, 1.0, 0.0)
-		for r in rows.size():
-			verts.append(bl + up * rows[r])
-			verts.append(br + up * rows[r])
-			uvs.append(Vector2(0.0, row_uv[r]))
-			uvs.append(Vector2(1.0, row_uv[r]))
-		for r in rows.size() - 1:
-			var b0 := base + r * 2
-			indices.append_array([b0, b0 + 1, b0 + 3, b0, b0 + 3, b0 + 2])
-		base += rows.size() * 2
+		# Kiri-bawah, kanan-bawah, kanan-atas (ujung), kiri-atas (ujung).
+		verts.append_array([bl, br, br + Vector3(0.0, 0.6, 0.0), bl + Vector3(0.0, 0.6, 0.0)])
+		uvs.append_array([Vector2(0.0, 1.0), Vector2(1.0, 1.0), Vector2(1.0, 0.0), Vector2(0.0, 0.0)])
+		indices.append_array([base + 0, base + 1, base + 2, base + 0, base + 2, base + 3])
+		base += 4
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
@@ -275,11 +270,13 @@ func _create_grass() -> void:
 	fnl.frequency = 0.05
 	noise_tex.noise = fnl
 	grass_material.set_shader_parameter("wind_noise", noise_tex)
-	# Nilai artikel (blade_bend 0.5, gust 1.0) bikin ujung bilah 0.6 m
-	# terdorong ~0.7 m ke samping — bilah rebah jadi daun. Dilunakkan:
-	# bilah tetap tegak, cuma bergoyang.
-	grass_material.set_shader_parameter("blade_bend", 0.2)
-	grass_material.set_shader_parameter("gust_strength", 0.6)
+	# Angin dilunakkan biar bilah tegak lurus & cuma bergoyang pelan
+	# (minta Bagus: angin kekencengan, bilah harus lurus).
+	grass_material.set_shader_parameter("blade_bend", 0.05)
+	grass_material.set_shader_parameter("gust_strength", 0.3)
+	grass_material.set_shader_parameter("still_sway_strength", 0.06)
+	# Bilah lebih runcing: lebar discard 70% (bawah tidak terlalu besar).
+	grass_material.set_shader_parameter("blade_width", 0.7)
 	var multimesh := MultiMesh.new()
 	multimesh.transform_format = MultiMesh.TRANSFORM_3D
 	multimesh.use_colors = false
@@ -303,7 +300,10 @@ func _create_grass() -> void:
 			Vector3(x, y, z)
 		)
 		multimesh.set_instance_transform(placed, t)
-		multimesh.set_instance_custom_data(placed, Color(rng.randf() * TAU, 0.0, 0.0, 0.0))
+		# Warna rumput NGIKUT warna tanah di bawahnya (minta Bagus):
+		# INSTANCE_CUSTOM.rgb = warna tanah titik itu, .a = variasi acak.
+		var gc := _ground_color(x, z)
+		multimesh.set_instance_custom_data(placed, Color(gc.r, gc.g, gc.b, rng.randf()))
 		placed += 1
 	multimesh.instance_count = placed
 	var mmi := MultiMeshInstance3D.new()

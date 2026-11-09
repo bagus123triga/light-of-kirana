@@ -11,8 +11,6 @@ render_mode cull_disabled, depth_draw_opaque;
 
 uniform float blade_height_taper = 2.0;
 uniform float blade_width = 1.0;
-uniform vec4 color_top : source_color = vec4(0.667, 0.922, 0.431, 1.0);
-uniform vec4 color_bottom : source_color = vec4(0.651, 0.282, 0.0, 1.0);
 uniform vec3 color_variation : source_color = vec3(0.9, 0.9, 0.2);
 uniform float patch_scale = 5.0;
 uniform sampler2D wind_noise : hint_default_white;
@@ -23,6 +21,9 @@ uniform float still_sway_speed = 4.5;
 uniform float still_sway_strength = 0.1;
 uniform float gust_strength = 1.0;
 uniform float gust_frequency = 0.08;
+// Kekuatan angin global 0..1 dari world.gd — SATU nilai dengan suara
+// angin, kadang 0 (reda total) kadang 1 (berhembus). Bukan dari artikel.
+uniform float wind_amount = 0.5;
 uniform vec3 player_position = vec3(0.0, -100.0, 0.0);
 uniform float interaction_radius = 1.0;
 uniform float interaction_push = 1.0;
@@ -31,9 +32,15 @@ uniform float blade_bend = 0.5;
 varying float v_patch;
 varying float v_wind_intensity;
 varying float v_height;
+// Warna tanah di bawah helai ini (INSTANCE_CUSTOM.rgb dari MultiMesh) —
+// warna rumput ngikut warna bawahnya (minta Bagus), bukan warna tetap.
+varying vec3 v_ground;
+varying float v_var;
 
 void vertex() {
 	v_height = UV.y;
+	v_ground = INSTANCE_CUSTOM.rgb;
+	v_var = INSTANCE_CUSTOM.a;
 
 	vec3 world_pos = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
 
@@ -62,7 +69,8 @@ void vertex() {
 	// Trik yang sama dengan interaksi pemain di artikel: offset world
 	// diubah ke local lewat inverse(MODEL_MATRIX).
 	vec2 wind_dir = normalize(wind_direction);
-	vec3 world_offset = vec3(wind_dir.x, 0.0, wind_dir.y) * (idle_sway + gust_push + blade_bend) * bend_strength;
+	// Angin diskala wind_amount (0 = reda total, bilah tegak diam).
+	vec3 world_offset = vec3(wind_dir.x, 0.0, wind_dir.y) * ((idle_sway + gust_push) * wind_amount + blade_bend) * bend_strength;
 
 	// preserve volume / prevent stretching
 	float dist_moved = length(world_offset.xz);
@@ -96,11 +104,14 @@ void fragment() {
 	float shape_mask = pow(UV.y, 1.0 / blade_height_taper);
 	if (center_dist > shape_mask * blade_width) discard;
 
-	// color
-	vec3 gradient = mix(color_top.rgb, color_bottom.rgb, UV.y);
-	vec3 wind_highlight = color_top.rgb * 1.5;
-	vec3 varied_color = mix(gradient, color_variation, v_patch * 0.3);
-	vec3 final_color = mix(varied_color, wind_highlight, v_wind_intensity * 0.4);
+	// color — ngikut warna tanah di bawahnya: ujung lebih terang,
+	// pangkal = warna tanah. Variasi kecil per helai dari INSTANCE_CUSTOM.a.
+	vec3 tip_col = v_ground * 1.5;
+	vec3 gradient = mix(tip_col, v_ground, UV.y);
+	vec3 wind_highlight = tip_col * 1.5;
+	vec3 varied_color = mix(gradient, color_variation, v_patch * 0.2);
+	varied_color *= 0.9 + v_var * 0.2;
+	vec3 final_color = mix(varied_color, wind_highlight, v_wind_intensity * 0.4 * wind_amount);
 	ALBEDO = final_color;
 
 	float bottom_to_top = v_height; // 0 = tip, 1 = base
