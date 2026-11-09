@@ -1,118 +1,109 @@
 extends Camera3D
 
-## LIGHT OF KIRANA — kamera saja (tanpa pemain, minta Bagus 2026-11-09:
-## "aku cuma pengen pake kamera dulu aja").
-## Mode cek dunia: kamera bebas terbang tanpa tabrakan. Joystick kiri +
-## WASD gerak, Space/NAIK naik, C/TURUN turun, Shift/CEPAT cepat (25 m/s),
-## drag kanan (atau mouse) lihat-lihat. Rumput gameidea didorong oleh
-## posisi kamera (player_position shader).
+## LIGHT OF KIRANA — kamera terbang v5 (REBUILD DARI 0).
+## Mode kamera saja (tanpa pemain, minta Bagus 2026-11-09).
+## Gerak: joystick kiri (layar sentuh) / WASD, 10 m/s (25 m/s kalau CEPAT/Shift).
+## Naik/turun: tombol NAIK/TURUN (sentuh) / Space naik / C turun.
+## Lihat: drag setengah kanan layar (sentuh) / drag mouse.
+## Tanpa gravitasi/kolisi.
 
-const VirtualJoystickScript := preload("res://scripts/virtual_joystick.gd")
-
-const FLY_SPEED := 10.0
-const FLY_FAST := 25.0
-
-var world: Node3D
+const MOVE_SPEED := 10.0
+const FAST_SPEED := 25.0
+const LOOK_SENS := 0.005
 
 var _yaw := 0.0
-var _pitch := 18.0
-var _joystick: KiranaVirtualJoystick
+var _pitch := -0.15
+var _dragging := false
+var _drag_id := -1
+var _joystick: Control
+var _btn_fast: Button
+var _btn_up: Button
+var _btn_down: Button
+var _fast_held := false
 var _up_held := false
 var _down_held := false
-var _fast_toggle := false
-var _mouse_look := false
-var _look_touch_id := -1
 
 
 func _ready() -> void:
 	add_to_group("fly_camera")
 	position = Vector3(0.0, 9.0, 20.0)
-	# Jarak pandang jauh biar terrain sampai ujung world kelihatan;
-	# kabut dihapus (minta Bagus), jadi tidak ada yang menelan ujung pandang.
-	# Culling performa diurus chunk rumput (world.gd), bukan far plane.
 	far = 600.0
-	_update_camera()
-	_create_touch_controls()
+	_build_touch_ui()
+
+
+func _build_touch_ui() -> void:
+	var layer := CanvasLayer.new()
+	layer.name = "TouchUI"
+	add_child(layer)
+	# Joystick kiri.
+	var joy_script := load("res://scripts/virtual_joystick.gd")
+	_joystick = Control.new()
+	_joystick.set_script(joy_script)
+	_joystick.name = "Joystick"
+	_joystick.position = Vector2(40, 400)
+	_joystick.size = Vector2(220, 220)
+	layer.add_child(_joystick)
+	# Tombol kanan: LARI (cepat), NAIK, TURUN.
+	_btn_fast = _make_button(layer, "CEPAT", Vector2(1080, 620), Vector2(150, 70))
+	_btn_up = _make_button(layer, "NAIK", Vector2(1080, 500), Vector2(150, 70))
+	_btn_down = _make_button(layer, "TURUN", Vector2(1080, 740), Vector2(150, 70))
+	_btn_fast.button_down.connect(func() -> void: _fast_held = true)
+	_btn_fast.button_up.connect(func() -> void: _fast_held = false)
+	_btn_up.button_down.connect(func() -> void: _up_held = true)
+	_btn_up.button_up.connect(func() -> void: _up_held = false)
+	_btn_down.button_down.connect(func() -> void: _down_held = true)
+	_btn_down.button_up.connect(func() -> void: _down_held = false)
+
+
+func _make_button(parent: Node, text: String, pos: Vector2, size: Vector2) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.position = pos
+	b.size = size
+	parent.add_child(b)
+	return b
+
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_LEFT:
+			_dragging = mb.pressed
+	elif event is InputEventMouseMotion and _dragging:
+		var mm := event as InputEventMouseMotion
+		_yaw -= mm.relative.x * LOOK_SENS
+		_pitch = clampf(_pitch - mm.relative.y * LOOK_SENS, -1.5, 1.5)
+	elif event is InputEventScreenTouch:
+		var st := event as InputEventScreenTouch
+		var vp := get_viewport().get_visible_rect().size
+		if st.position.x > vp.x * 0.5:
+			if st.pressed:
+				_drag_id = st.index
+			elif st.index == _drag_id:
+				_drag_id = -1
+	elif event is InputEventScreenDrag:
+		var sd := event as InputEventScreenDrag
+		if sd.index == _drag_id:
+			_yaw -= sd.relative.x * LOOK_SENS
+			_pitch = clampf(_pitch - sd.relative.y * LOOK_SENS, -1.5, 1.5)
 
 
 func _process(delta: float) -> void:
+	rotation = Vector3(_pitch, _yaw, 0.0)
 	var input_dir := Vector2.ZERO
-	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP):
-		input_dir.y -= 1.0
-	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
-		input_dir.y += 1.0
-	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
-		input_dir.x -= 1.0
-	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
-		input_dir.x += 1.0
 	if _joystick:
-		input_dir += _joystick.output
-	input_dir = input_dir.limit_length(1.0)
-	var fast := Input.is_key_pressed(KEY_SHIFT) or _fast_toggle
-	var speed := FLY_FAST if fast else FLY_SPEED
-	var basis := global_transform.basis
-	var forward := -basis.z
-	var right := basis.x
-	var move := right * input_dir.x - forward * input_dir.y
+		input_dir = _joystick.output
+	else:
+		input_dir = Input.get_vector("ui_left", "ui_right", "ui_up", "ui_down")
+	var speed := FAST_SPEED if (_fast_held or Input.is_key_pressed(KEY_SHIFT)) else MOVE_SPEED
+	var forward := -global_transform.basis.z
+	var right := global_transform.basis.x
+	var move := (right * input_dir.x) + (forward * -input_dir.y)
+	var up := 0.0
 	if _up_held or Input.is_key_pressed(KEY_SPACE):
-		move.y += 1.0
+		up += 1.0
 	if _down_held or Input.is_key_pressed(KEY_C):
-		move.y -= 1.0
-	if move.length() > 1.0:
-		move = move.normalized()
-	global_position += move * speed * delta
-	if world and world.has_method("set_interaction_position"):
-		world.set_interaction_position(global_position)
-
-
-func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
-		_mouse_look = event.pressed
-	if event is InputEventMouseMotion and _mouse_look:
-		_yaw -= event.relative.x * 0.005
-		_pitch = clampf(_pitch - event.relative.y * 0.3, -80.0, 80.0)
-		_update_camera()
-	if event is InputEventScreenTouch:
-		var viewport := get_viewport().get_visible_rect().size
-		if event.pressed:
-			if event.position.x >= viewport.x * 0.5 and _look_touch_id == -1:
-				_look_touch_id = event.index
-		else:
-			if event.index == _look_touch_id:
-				_look_touch_id = -1
-	if event is InputEventScreenDrag and event.index == _look_touch_id:
-		_yaw -= event.relative.x * 0.008
-		_pitch = clampf(_pitch - event.relative.y * 0.3, -80.0, 80.0)
-		_update_camera()
-
-
-func _update_camera() -> void:
-	rotation = Vector3(deg_to_rad(-_pitch), _yaw, 0.0)
-
-
-func _create_touch_controls() -> void:
-	var layer := CanvasLayer.new()
-	add_child(layer)
-	_joystick = KiranaVirtualJoystick.new()
-	layer.add_child(_joystick)
-	var fast_btn := _make_button("CEPAT", Vector2(-292, -272))
-	fast_btn.toggle_mode = true
-	fast_btn.toggled.connect(func(on: bool) -> void: _fast_toggle = on)
-	layer.add_child(fast_btn)
-	var up_btn := _make_button("NAIK", Vector2(-172, -272))
-	up_btn.button_down.connect(func() -> void: _up_held = true)
-	up_btn.button_up.connect(func() -> void: _up_held = false)
-	layer.add_child(up_btn)
-	var down_btn := _make_button("TURUN", Vector2(-172, -152))
-	down_btn.button_down.connect(func() -> void: _down_held = true)
-	down_btn.button_up.connect(func() -> void: _down_held = false)
-	layer.add_child(down_btn)
-
-
-func _make_button(text: String, offset: Vector2) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.custom_minimum_size = Vector2(96, 96)
-	b.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	b.position = offset
-	return b
+		up -= 1.0
+	move.y += up
+	if move.length() > 0.01:
+		position += move.normalized() * speed * delta

@@ -1,47 +1,46 @@
 extends Node3D
 
-## LIGHT OF KIRANA — dunia v4 (minta Bagus 2026-11-09).
-## Dataran DATAR (bukan bergelombang semua) + BUKIT di tempat tertentu.
-## Tanah coklat = JALANAN (bukan ngacak). Tanah berbukit dari heightmap
-## + noise (tanpa addon), bertekstur CC0 Poly Haven (rumput / tanah gundul
-## / batu lereng curam, mask per-vertex). Danau bertepi berombak (tanpa
-## garis lurus) + air shader stylized. Rumput MultiMesh + shader angin,
-## dipecah per chunk + dicull di belakang jarak pandang (pengganti kabut).
-## Tanpa pohon & batu (minta Bagus 2026-11-09). Langit + siklus hari
-## diatur scripts/sky.gd (shader stylized, tanpa kabut).
+## LIGHT OF KIRANA — dunia v5 (REBUILD DARI 0, minta Bagus 2026-11-09:
+## "rebuild world map dari 0, clean dulu repo, yang bagus kayak Zelda/Genshin").
+## Open world 384 m: laut di barat (pantai), pegunungan di utara, padang
+## rumput di tengah, hutan di timur, danau + jalanan tanah.
+## Ditulis bersih dari nol (skill GodotPrompter: procedural-generation +
+## gdscript-patterns): RNG ber-seed, FastNoiseLite, type hint di mana-mana.
+## Langit = shader stylized (shaders/sky.gdshader, prosedural, tanpa foto).
+## Rumput MultiMesh per chunk + dicull di belakang jarak pandang (pengganti kabut).
+## Tanpa pohon & batu (minta Bagus 2026-11-09).
 
 enum GroundType { GRASS, DIRT, ROCK }
 
-const WORLD_SIZE := 256.0
-const SUBDIV := 256
-const LAKE_CENTER := Vector2(14.0, 12.0)
-const LAKE_RADIUS := 9.0
+const WORLD_SIZE := 384.0
+const SUBDIV := 192  # grid 2 m (193x193 vertex, ringan buat tablet)
 const WATER_LEVEL := -0.25
-# Rumput PADAT (minta Bagus, "terlalu berjarak"): 150k->300k.
-# Dipecah 4x4 chunk biar bisa dicull per chunk (hemat GPU).
-const GRASS_COUNT := 300000
-const GRASS_CHUNKS := 4  # 4x4 = 16 chunk
-const VIEW_DISTANCE := 150.0  # jarak pandang: rumput di belakang ini tidak di-render
+const SEA_X := -150.0  # barat (x < -150) = laut
+const MOUNTAIN_Z := -150.0  # utara (z < -150) = pegunungan
+const LAKE_CENTER := Vector2(60.0, 35.0)
+const LAKE_RADIUS := 12.0
+const FOREST_X := 90.0  # timur (x > 90) = hutan (rumput lebih rapat + gelap)
+const GRASS_CHUNKS := 6  # 6x6 = 36 chunk, tiap chunk 64 m
+const VIEW_DISTANCE := 150.0  # rumput di belakang ini tidak di-render
 
-# Bukit (minta Bagus: dataran datar, bukit cuma di tempat tertentu).
-# [tengah, jari-jari, tinggi]. Semua jauh dari spawn (0,6) + danau (14,12)
-# biar area tengah tetap datar.
-const HILLS := [
-	[Vector2(-70.0, -60.0), 30.0, 14.0],
-	[Vector2(80.0, -70.0), 35.0, 18.0],
-	[Vector2(-80.0, 70.0), 25.0, 10.0],
-	[Vector2(75.0, 75.0), 30.0, 12.0],
-	[Vector2(0.0, -90.0), 25.0, 9.0],
+# Bukit (dataran datar, bukit cuma di tempat tertentu).
+# [tengah, jari-jari, tinggi]. Jauh dari spawn (0,0) + danau (60,35).
+const HILLS: Array = [
+	[Vector2(-70.0, -60.0), 28.0, 12.0],
+	[Vector2(70.0, -70.0), 32.0, 15.0],
+	[Vector2(-80.0, 70.0), 24.0, 9.0],
+	[Vector2(80.0, 80.0), 30.0, 11.0],
+	[Vector2(0.0, -100.0), 26.0, 10.0],
+	[Vector2(-120.0, 0.0), 22.0, 8.0],
 ]
 
-# Jalanan tanah coklat (minta Bagus: buat jalanan, bukan ngacak).
-# Tiap jalan = garis titik-titik (polyline); lebar 4 m (2 m tiap sisi).
-# Semua berangkat dari spawn (0,6).
-const PATHS := [
-	[Vector2(0.0, 6.0), Vector2(4.0, 8.0), Vector2(8.0, 10.0), Vector2(11.0, 11.0)],  # spawn -> danau
-	[Vector2(0.0, 6.0), Vector2(-8.0, 3.0), Vector2(-16.0, -2.0), Vector2(-24.0, -8.0)],  # spawn -> barat
-	[Vector2(0.0, 6.0), Vector2(3.0, -2.0), Vector2(6.0, -10.0), Vector2(9.0, -18.0)],  # spawn -> selatan
-	[Vector2(0.0, 6.0), Vector2(10.0, 4.0), Vector2(20.0, 0.0), Vector2(30.0, -5.0)],  # spawn -> timur
+# Jalanan tanah coklat (bukan bercak ngacak). Tiap jalan = polyline.
+# Semua berangkat dari spawn (0,0).
+const PATHS: Array = [
+	[Vector2(0.0, 0.0), Vector2(20.0, 12.0), Vector2(40.0, 24.0), Vector2(52.0, 31.0)],  # spawn -> danau
+	[Vector2(0.0, 0.0), Vector2(-40.0, 5.0), Vector2(-90.0, 8.0), Vector2(-140.0, 5.0)],  # spawn -> pantai barat
+	[Vector2(0.0, 0.0), Vector2(30.0, -5.0), Vector2(70.0, -8.0), Vector2(100.0, -5.0)],  # spawn -> hutan timur
+	[Vector2(0.0, 0.0), Vector2(-5.0, -30.0), Vector2(-8.0, -70.0), Vector2(-5.0, -110.0)],  # spawn -> pegunungan utara
 ]
 const PATH_HALF_WIDTH := 2.0
 
@@ -54,29 +53,30 @@ var _dirt_noise := FastNoiseLite.new()
 var _ambience: Node
 var _grass_chunks: Array[Dictionary] = []
 
+# Cache tinggi tanah (grid 193x193). get_height() baca dari grid (bilinear)
+# biar pembuatan terrain + rumput + collision tidak ngulang noise berkali-kali.
+# Tanpa ini, world test headless jalan >8 menit (GDScript lambat hitung noise).
+var _height_grid := PackedFloat32Array()
+var _grid_step := 0.0
+
 
 func _ready() -> void:
 	_height_noise.seed = 1234
 	_height_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	# Dataran DATAR (minta Bagus): noise dasar cuma undulasi halus (0.4 m),
-	# bukan bukit bergelombang (dulu 3.0 m). Bukitnya dari HILLS, bukan noise.
-	_height_noise.frequency = 0.02
-	_height_noise.fractal_octaves = 2
+	_height_noise.frequency = 0.012
+	_height_noise.fractal_octaves = 3
 	_dirt_noise.seed = 777
 	_dirt_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	_dirt_noise.frequency = 0.08
-	_dirt_noise.fractal_octaves = 3
-	_ambience = get_tree().get_first_node_in_group("ambience")
+	_dirt_noise.frequency = 0.5
+	_ambience = get_node_or_null("Ambience")
+	_build_height_grid()
 	_create_terrain()
 	_create_water()
 	_create_grass()
+	_create_shrine()
 
 
-func _process(delta: float) -> void:
-	# SATU nilai angin untuk semuanya: goyangan rumput (shader) + volume
-	# suara angin. Angin TIDAK terus-menerus — kadang reda total (0),
-	# kadang berhembus kencang (1). Dua sinus berperiode beda biar
-	# polanya tidak berulang monoton.
+func _process(_delta: float) -> void:
 	var t := Time.get_ticks_msec() / 1000.0
 	var g := sin(t * 0.10) * 0.6 + sin(t * 0.023 + 1.7) * 0.4
 	wind_strength = clampf(g, 0.0, 1.0)
@@ -84,8 +84,6 @@ func _process(delta: float) -> void:
 		grass_material.set_shader_parameter("wind_amount", wind_strength)
 	if _ambience and _ambience.has_method("set_wind"):
 		_ambience.set_wind(wind_strength)
-	# Culling rumput (pengganti kabut, minta Bagus): chunk yang jauh dari
-	# kamera (di belakang jarak pandang) tidak di-render sama sekali.
 	_update_grass_culling()
 
 
@@ -102,26 +100,52 @@ func _update_grass_culling() -> void:
 		node.visible = d < VIEW_DISTANCE + chunk_half_diag
 
 
-func set_interaction_position(p: Vector3) -> void:
-	# Kamera (mode kamera saja) mendorong rumput saat lewat — interaksi
-	# player_position dari shader gameidea.
-	if grass_material:
-		grass_material.set_shader_parameter("player_position", p)
+# --- Tinggi tanah ---
+
+func _build_height_grid() -> void:
+	_grid_step = WORLD_SIZE / SUBDIV
+	var half := WORLD_SIZE * 0.5
+	_height_grid.resize((SUBDIV + 1) * (SUBDIV + 1))
+	for j in SUBDIV + 1:
+		for i in SUBDIV + 1:
+			_height_grid[j * (SUBDIV + 1) + i] = _compute_height_raw(-half + i * _grid_step, -half + j * _grid_step)
 
 
-# --- Tinggi & jenis tanah (satu rumus dipakai mesh, rumput, pohon, pemain) ---
+# Tinggi tanah dari grid (bilinear). Cepat; dipakai terrain/rumput/collision/test.
+func get_height(x: float, z: float) -> float:
+	if _height_grid.is_empty():
+		return _compute_height_raw(x, z)
+	var half := WORLD_SIZE * 0.5
+	var gx := clampf((x + half) / _grid_step, 0.0, float(SUBDIV) - 0.001)
+	var gz := clampf((z + half) / _grid_step, 0.0, float(SUBDIV) - 0.001)
+	var i := int(gx)
+	var j := int(gz)
+	var fx := gx - float(i)
+	var fz := gz - float(j)
+	var w := SUBDIV + 1
+	var h00: float = _height_grid[j * w + i]
+	var h10: float = _height_grid[j * w + i + 1]
+	var h01: float = _height_grid[(j + 1) * w + i]
+	var h11: float = _height_grid[(j + 1) * w + i + 1]
+	return lerpf(lerpf(h00, h10, fx), lerpf(h01, h11, fx), fz)
 
-# Jari-jari danau berubah-ubah menurut sudut (2 sinus, periode beda) —
-# tepinya berombak organik, tidak ada garis lurus (minta Bagus 2026-11-09).
-# Rentang ~6–12 m. Kontinu di sudut 0/2π (sinus kelipatan bulat).
+
 func _lake_radius_at(angle: float) -> float:
 	return LAKE_RADIUS + 2.0 * sin(angle * 2.0 + 0.7) + 1.0 * sin(angle * 5.0 + 2.0)
 
 
-func get_height(x: float, z: float) -> float:
-	# Dataran DATAR: undulasi halus cuma 0.4 m (bukan 3.0 m).
-	var h := _height_noise.get_noise_2d(x, z) * 0.4
-	# Bukit: gundukan cosinus halus (1 di tengah, 0 di tepi) di titik HILLS.
+func _compute_height_raw(x: float, z: float) -> float:
+	# Dataran bergelombang halus (bukan bukit di mana-mana).
+	var h := _height_noise.get_noise_2d(x, z) * 1.5
+	# Laut (barat): turun halus ke -4 m di bawah air.
+	if x < SEA_X:
+		var f := smoothstep(0.0, 1.0, clampf((SEA_X - x) / 40.0, 0.0, 1.0))
+		h = lerpf(h, -4.0, f)
+	# Pegunungan (utara): naik halus ke +25 m.
+	if z < MOUNTAIN_Z:
+		var f := smoothstep(0.0, 1.0, clampf((MOUNTAIN_Z - z) / 40.0, 0.0, 1.0))
+		h = lerpf(h, 25.0, f)
+	# Bukit: gundukan cosinus halus di titik HILLS.
 	for hill in HILLS:
 		var center: Vector2 = hill[0]
 		var radius: float = hill[1]
@@ -130,20 +154,22 @@ func get_height(x: float, z: float) -> float:
 		if d < radius:
 			var m := 0.5 + 0.5 * cos(PI * clampf(d / radius, 0.0, 1.0))
 			h += height * m
+	# Danau (cekungan bertepi berombak).
 	var rel := Vector2(x, z) - LAKE_CENTER
 	var d := rel.length()
 	var r := _lake_radius_at(atan2(rel.y, rel.x))
 	if d < r:
 		var f := smoothstep(0.0, 1.0, d / r)
 		h = lerpf(-1.6, h, f)
-	# Ratakan area spawn pemain (0, 6).
-	var ds := Vector2(x, z).distance_to(Vector2(0.0, 6.0))
-	if ds < 4.0:
-		h = lerpf(0.0, h, smoothstep(0.0, 1.0, ds / 4.0))
+	# Ratakan area spawn (0, 0).
+	var ds := Vector2(x, z).distance_to(Vector2.ZERO)
+	if ds < 5.0:
+		h = lerpf(0.0, h, smoothstep(0.0, 1.0, ds / 5.0))
 	return h
 
 
-# Jarak titik ke segmen garis (buat jalanan).
+# --- Jenis tanah ---
+
 func _dist_to_segment(p: Vector2, a: Vector2, b: Vector2) -> float:
 	var ab := b - a
 	var denom := ab.length_squared()
@@ -170,207 +196,163 @@ func get_ground_type(x: float, z: float) -> int:
 	slope = maxf(slope, absf(get_height(x, z + e) - get_height(x, z - e)) / (2.0 * e))
 	if slope > 0.42:
 		return GroundType.ROCK
-	# Tanah coklat = JALANAN (minta Bagus), bukan bercak ngacak.
-	# Dulu: noise acak. Sekarang: dekat garis PATHS saja.
 	if _dist_to_paths(x, z) < PATH_HALF_WIDTH:
 		return GroundType.DIRT
 	return GroundType.GRASS
 
 
+func is_forest(x: float, z: float) -> bool:
+	return x > FOREST_X and get_height(x, z) > WATER_LEVEL + 0.5
+
+
+# Warna tanah: hijau (rumput) / coklat (tanah gundul) / abu-abu (batu).
+# Dipakai shader terrain (mask) + warna bilah rumput (INSTANCE_CUSTOM).
 func _ground_color(x: float, z: float) -> Color:
-	match get_ground_type(x, z):
-		GroundType.ROCK:
-			return Color(0.36, 0.34, 0.33)
+	var t := get_ground_type(x, z)
+	match t:
 		GroundType.DIRT:
 			return Color(0.45, 0.33, 0.20)
-		_:
-			var v := 0.9 + 0.2 * _dirt_noise.get_noise_2d(x * 0.5, z * 0.5)
-			return Color(0.30 * v, 0.48 * v, 0.20 * v)
-
-
-# Mask jenis tanah untuk shader terrain (r=tanah gundul, g=rumput, b=batu).
-# Dipakai sebagai COLOR vertex terrain; _ground_color dipakai warna bilah rumput.
-func _ground_mask(x: float, z: float) -> Color:
-	match get_ground_type(x, z):
 		GroundType.ROCK:
-			return Color(0.0, 0.0, 1.0)
-		GroundType.DIRT:
-			return Color(1.0, 0.0, 0.0)
+			return Color(0.42, 0.42, 0.44)
 		_:
-			return Color(0.0, 1.0, 0.0)
+			var v := _dirt_noise.get_noise_2d(x * 0.5, z * 0.5) * 0.5 + 0.5
+			var g := Color(0.28, 0.48, 0.18).lerp(Color(0.45, 0.62, 0.25), v)
+			if is_forest(x, z):
+				g = g * Color(0.75, 0.9, 0.7)
+			return g
 
 
-# --- Tanah ---
+# Mask per-vertex buat shader terrain (1,0,0)=tanah, (0,1,0)=rumput, (0,0,1)=batu.
+func _ground_mask(x: float, z: float) -> Color:
+	var t := get_ground_type(x, z)
+	match t:
+		GroundType.DIRT:
+			return Color(1, 0, 0)
+		GroundType.ROCK:
+			return Color(0, 0, 1)
+		_:
+			return Color(0, 1, 0)
+
+
+# --- Terrain ---
 
 func _create_terrain() -> void:
-	var verts := PackedVector3Array()
-	var normals := PackedVector3Array()
-	var colors := PackedColorArray()
-	var indices := PackedInt32Array()
-	var heights := PackedFloat32Array()
-	var half := WORLD_SIZE * 0.5
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var step := WORLD_SIZE / SUBDIV
-	for j in SUBDIV + 1:
-		for i in SUBDIV + 1:
-			var x := -half + i * step
-			var z := -half + j * step
-			var h := get_height(x, z)
-			verts.append(Vector3(x, h, z))
-			normals.append(Vector3.UP)
-			colors.append(_ground_mask(x, z))
-			heights.append(h)
+	var half := WORLD_SIZE * 0.5
 	for j in SUBDIV:
 		for i in SUBDIV:
-			var a := j * (SUBDIV + 1) + i
-			var b := a + 1
-			var c := a + SUBDIV + 1
-			var d := c + 1
-			# Urutan segitiga [a,b,c, b,d,c] — generate_normals() memberi
-			# normal ke ATAS untuk urutan ini; [a,c,b] terbalik (normal
-			# ke bawah, tanah cuma kena ambient → putih di tablet).
-			indices.append_array([a, b, c, b, d, c])
-	var arrays := []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = verts
-	arrays[Mesh.ARRAY_NORMAL] = normals
-	arrays[Mesh.ARRAY_COLOR] = colors
-	arrays[Mesh.ARRAY_INDEX] = indices
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	# Normal yang benar (bukan UP mentah) — penting buat cahaya lereng.
-	var st := SurfaceTool.new()
-	st.create_from(mesh, 0)
+			var x0 := -half + i * step
+			var z0 := -half + j * step
+			var x1 := x0 + step
+			var z1 := z0 + step
+			# [a,b,c] (bukan [a,c,b]) biar normal menghadap ATAS.
+			var a := Vector3(x0, get_height(x0, z0), z0)
+			var b := Vector3(x1, get_height(x1, z0), z0)
+			var c := Vector3(x1, get_height(x1, z1), z1)
+			var d := Vector3(x0, get_height(x0, z1), z1)
+			st.set_uv(Vector2(x0, z0) * 0.33)
+			st.set_color(_ground_mask(x0, z0))
+			st.add_vertex(a)
+			st.set_uv(Vector2(x1, z0) * 0.33)
+			st.set_color(_ground_mask(x1, z0))
+			st.add_vertex(b)
+			st.set_uv(Vector2(x1, z1) * 0.33)
+			st.set_color(_ground_mask(x1, z1))
+			st.add_vertex(c)
+			st.set_uv(Vector2(x0, z0) * 0.33)
+			st.set_color(_ground_mask(x0, z0))
+			st.add_vertex(a)
+			st.set_uv(Vector2(x1, z1) * 0.33)
+			st.set_color(_ground_mask(x1, z1))
+			st.add_vertex(c)
+			st.set_uv(Vector2(x0, z1) * 0.33)
+			st.set_color(_ground_mask(x0, z1))
+			st.add_vertex(d)
 	st.generate_normals()
-	mesh = st.commit()
-	var body := StaticBody3D.new()
-	body.name = "Terrain"
-	add_child(body)
-	var mesh_instance := MeshInstance3D.new()
-	mesh_instance.mesh = mesh
-	# Material shader bertekstur (bukan warna vertex polos): sampling
-	# tekstur CC0 Poly Haven per jenis tanah, mask dari COLOR vertex.
+	var mesh := st.commit()
+	var mi := MeshInstance3D.new()
+	mi.name = "Terrain"
+	mi.mesh = mesh
 	terrain_material = ShaderMaterial.new()
 	terrain_material.shader = load("res://shaders/terrain.gdshader")
 	terrain_material.set_shader_parameter("grass_tex", load("res://assets/textures/grass004_diff_1k.jpg"))
 	terrain_material.set_shader_parameter("dirt_tex", load("res://assets/textures/dirt_floor_diff_1k.jpg"))
 	terrain_material.set_shader_parameter("rock_tex", load("res://assets/textures/rock_face_diff_1k.jpg"))
-	mesh_instance.material_override = terrain_material
-	body.add_child(mesh_instance)
-	var shape := HeightMapShape3D.new()
-	shape.map_width = SUBDIV + 1
-	shape.map_depth = SUBDIV + 1
-	shape.map_data = heights
-	var collision := CollisionShape3D.new()
-	collision.shape = shape
-	# HeightMapShape3D berpusat di origin dengan jarak sampel 1 m — sama
-	# dengan grid mesh (64 m / 64 subdivisi), jadi tanpa offset.
-	body.add_child(collision)
+	mi.material_override = terrain_material
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mi)
+	# Collision (HeightMapShape3D).
+	var col := StaticBody3D.new()
+	col.name = "TerrainCollision"
+	var shape := CollisionShape3D.new()
+	var hm := HeightMapShape3D.new()
+	var data := PackedFloat32Array()
+	data.resize((SUBDIV + 1) * (SUBDIV + 1))
+	for j in SUBDIV + 1:
+		for i in SUBDIV + 1:
+			data[j * (SUBDIV + 1) + i] = get_height(-half + i * step, -half + j * step)
+	hm.map_width = SUBDIV + 1
+	hm.map_depth = SUBDIV + 1
+	hm.map_data = data
+	shape.shape = hm
+	col.add_child(shape)
+	add_child(col)
 
 
-# --- Danau (air dari godotlearning.com, CC0) ---
+# --- Air (satu bidang besar: laut barat + danau) ---
 
 func _create_water() -> void:
-	# Shader + material + normal map dari paket CC0 godotlearning
-	# "Stylized Water" (res://water/). BUKAN plane kotak lagi — mesh cakram
-	# kustom (grid polar: 20 ring x 64 segmen) yang tepinya mengikuti jari-jari
-	# danau yang berombak (radius * 1.1 + 0.5, masuk ke bawah tanah) — jadi
-	# tidak ada garis lurus di tepi danau (minta Bagus 2026-11-09).
-	# Ring rapat (jarak ~0.6 m) supaya gelombang vertex shader tetap kelihatan.
-	var rings := 20
-	var segs := 64
-	var verts := PackedVector3Array()
-	var normals := PackedVector3Array()
-	var tangents := PackedFloat32Array()
-	var uvs := PackedVector2Array()
-	var indices := PackedInt32Array()
-	# Titik tengah.
-	verts.append(Vector3.ZERO)
-	normals.append(Vector3.UP)
-	tangents.append_array([1.0, 0.0, 0.0, 1.0])
-	uvs.append(Vector2.ZERO)
-	for ring in rings:
-		var f := float(ring + 1) / float(rings)
-		for s in segs:
-			var angle := TAU * float(s) / float(segs)
-			var r := _lake_radius_at(angle) * 1.1 + 0.5
-			var rr := r * f
-			verts.append(Vector3(cos(angle) * rr, 0.0, sin(angle) * rr))
-			normals.append(Vector3.UP)
-			tangents.append_array([1.0, 0.0, 0.0, 1.0])
-			uvs.append(Vector2(cos(angle) * rr, sin(angle) * rr) / 8.0)
-	# Kipas tengah (pusat -> ring 1).
-	for s in segs:
-		indices.append_array([0, 1 + s, 1 + (s + 1) % segs])
-	# Quad antar ring.
-	for ring in rings - 1:
-		var base0 := 1 + ring * segs
-		var base1 := 1 + (ring + 1) * segs
-		for s in segs:
-			var s1 := (s + 1) % segs
-			indices.append_array([base0 + s, base1 + s, base1 + s1, base0 + s, base1 + s1, base0 + s1])
-	var arrays := []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = verts
-	arrays[Mesh.ARRAY_NORMAL] = normals
-	arrays[Mesh.ARRAY_TANGENT] = tangents
-	arrays[Mesh.ARRAY_TEX_UV] = uvs
-	arrays[Mesh.ARRAY_INDEX] = indices
-	var disc := ArrayMesh.new()
-	disc.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	var water := MeshInstance3D.new()
 	water.name = "Water"
-	water.mesh = disc
-	water.position = Vector3(LAKE_CENTER.x, WATER_LEVEL, LAKE_CENTER.y)
-	water.material_override = load("res://water/water_material.tres")
+	var plane := PlaneMesh.new()
+	plane.size = Vector2(768.0, 768.0)
+	plane.subdivide_width = 24
+	plane.subdivide_depth = 24
+	water.mesh = plane
+	water.position = Vector3(0.0, WATER_LEVEL, 0.0)
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://water/stylized_water.gdshader")
+	water.material_override = mat
 	add_child(water)
 
 
-# --- Rumput (hanya di tanah berumput, bukan tanah gundul / batu) ---
+# --- Rumput (MultiMesh per chunk, dicull) ---
 
 func _blade_mesh() -> ArrayMesh:
-	# 2 quad menyilang — shader gameidea mengharapkan quad penuh: UV.x
-	# 0..1 selebar bilah, UV.y = 0 di ujung, 1 di pangkal, biar discard-nya
-	# membentuk bilah yang meruncing. LURUS saja, tanpa segmen lengkung
-	# (minta Bagus 2026-11-09: "lurus aja nggak usah 3 shape").
-	# Bilah TIPIS (lebar 0.06, tinggi 0.5) biar runcing.
-	# Direvisi 2026-11-09: 0.6 dipendekin dikit jadi 0.5 (minta Bagus).
-	var verts := PackedVector3Array()
-	var uvs := PackedVector2Array()
-	var indices := PackedInt32Array()
-	var half_w := 0.03
-	var quads := [
-		[Vector3(-half_w, 0.0, 0.0), Vector3(half_w, 0.0, 0.0)],
-		[Vector3(0.0, 0.0, -half_w), Vector3(0.0, 0.0, half_w)],
-	]
-	var base := 0
-	for q in quads:
-		var bl: Vector3 = q[0]
-		var br: Vector3 = q[1]
-		# Kiri-bawah, kanan-bawah, kanan-atas (ujung), kiri-atas (ujung).
-		verts.append_array([bl, br, br + Vector3(0.0, 0.5, 0.0), bl + Vector3(0.0, 0.5, 0.0)])
-		uvs.append_array([Vector2(0.0, 1.0), Vector2(1.0, 1.0), Vector2(1.0, 0.0), Vector2(0.0, 0.0)])
-		indices.append_array([base + 0, base + 1, base + 2, base + 0, base + 2, base + 3])
-		base += 4
-	var arrays := []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = verts
-	arrays[Mesh.ARRAY_TEX_UV] = uvs
-	arrays[Mesh.ARRAY_INDEX] = indices
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	# Bilah rumput: 2 quad menyilang (8 vertex), 1 segmen, lurus.
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var w := 0.06
+	var h := 0.5
+	# Quad 1 (sejajar X).
+	st.add_vertex(Vector3(-w, 0, 0))
+	st.add_vertex(Vector3(w, 0, 0))
+	st.add_vertex(Vector3(w, h, 0))
+	st.add_vertex(Vector3(-w, 0, 0))
+	st.add_vertex(Vector3(w, h, 0))
+	st.add_vertex(Vector3(-w, h, 0))
+	# Quad 2 (sejajar Z).
+	st.add_vertex(Vector3(0, 0, -w))
+	st.add_vertex(Vector3(0, 0, w))
+	st.add_vertex(Vector3(0, h, w))
+	st.add_vertex(Vector3(0, 0, -w))
+	st.add_vertex(Vector3(0, h, w))
+	st.add_vertex(Vector3(0, h, -w))
+	var mesh := st.commit()
 	return mesh
 
 
 func _create_grass() -> void:
-	# Rumput dipecah 4x4 chunk (biar bisa dicull per chunk di belakang
-	# jarak pandang, pengganti kabut). Tiap chunk 1 MultiMesh.
+	# Penempatan grid + jitter (BUKAN rejection sampling). Rejection sampling
+	# 350k bilah di GDScript jalan >90 detik (timeout headless); grid 0.8 m
+	# cuma butuh 1 cek per titik, jadi cepat + merata.
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 2026
 	var blade := _blade_mesh()
 	grass_material = ShaderMaterial.new()
 	grass_material.shader = load("res://shaders/grass_wind.gdshader")
-	# Tekstur noise shader gameidea: NoiseTexture2D (dibuat di kode, karena
-	# artikelnya juga membuatnya di editor, bukan dari file).
 	var noise_tex := NoiseTexture2D.new()
 	noise_tex.width = 256
 	noise_tex.height = 256
@@ -380,16 +362,15 @@ func _create_grass() -> void:
 	fnl.frequency = 0.05
 	noise_tex.noise = fnl
 	grass_material.set_shader_parameter("wind_noise", noise_tex)
-	# Angin dilunakkan biar bilah tegak lurus & cuma bergoyang pelan
-	# (minta Bagus: angin kekencengan, bilah harus lurus).
 	grass_material.set_shader_parameter("blade_bend", 0.05)
 	grass_material.set_shader_parameter("gust_strength", 0.3)
 	grass_material.set_shader_parameter("still_sway_strength", 0.06)
-	# Bilah lebih runcing: lebar discard 70% (bawah tidak terlalu besar).
 	grass_material.set_shader_parameter("blade_width", 0.7)
-	var per_chunk := GRASS_COUNT / (GRASS_CHUNKS * GRASS_CHUNKS)
+	var spacing := 0.8
 	var chunk_size := WORLD_SIZE / GRASS_CHUNKS
 	var half := WORLD_SIZE * 0.5
+	var per_side := int(chunk_size / spacing)
+	var max_per_chunk := per_side * per_side
 	for cj in GRASS_CHUNKS:
 		for ci in GRASS_CHUNKS:
 			var x0 := -half + ci * chunk_size
@@ -399,38 +380,76 @@ func _create_grass() -> void:
 			multimesh.use_colors = false
 			multimesh.use_custom_data = true
 			multimesh.mesh = blade
-			multimesh.instance_count = per_chunk
+			multimesh.instance_count = max_per_chunk
 			var placed := 0
-			var guard := 0
-			while placed < per_chunk and guard < per_chunk * 20:
-				guard += 1
-				var x := rng.randf_range(x0 + 1.0, x0 + chunk_size - 1.0)
-				var z := rng.randf_range(z0 + 1.0, z0 + chunk_size - 1.0)
-				if get_ground_type(x, z) != GroundType.GRASS:
-					continue
-				var y := get_height(x, z)
-				if y < WATER_LEVEL + 0.05:
-					continue
-				var t := Transform3D(
-					Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * rng.randf_range(0.7, 1.4)),
-					Vector3(x, y, z)
-				)
-				multimesh.set_instance_transform(placed, t)
-				# Warna rumput NGIKUT warna tanah di bawahnya (minta Bagus):
-				# INSTANCE_CUSTOM.rgb = warna tanah titik itu, .a = variasi acak.
-				var gc := _ground_color(x, z)
-				multimesh.set_instance_custom_data(placed, Color(gc.r, gc.g, gc.b, rng.randf()))
-				placed += 1
+			for gz in per_side:
+				for gx in per_side:
+					var x := x0 + (float(gx) + 0.5) * spacing + rng.randf_range(-0.3, 0.3)
+					var z := z0 + (float(gz) + 0.5) * spacing + rng.randf_range(-0.3, 0.3)
+					if get_ground_type(x, z) != GroundType.GRASS:
+						continue
+					var y := get_height(x, z)
+					if y < WATER_LEVEL + 0.05:
+						continue
+					var t := Transform3D(
+						Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * rng.randf_range(0.7, 1.4)),
+						Vector3(x, y, z)
+					)
+					multimesh.set_instance_transform(placed, t)
+					var gc := _ground_color(x, z)
+					multimesh.set_instance_custom_data(placed, Color(gc.r, gc.g, gc.b, rng.randf()))
+					placed += 1
 			multimesh.instance_count = placed
 			var mmi := MultiMeshInstance3D.new()
 			mmi.name = "Grass_%d_%d" % [ci, cj]
 			mmi.multimesh = multimesh
 			mmi.material_override = grass_material
-			# Rumput tidak melempar bayangan — bayangan tongkat yang panjang
-			# bikin helai kelihatan makin kaku, dan hemat GPU.
 			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			add_child(mmi)
 			_grass_chunks.append({
 				"node": mmi,
 				"center": Vector3(x0 + chunk_size * 0.5, 0.0, z0 + chunk_size * 0.5),
 			})
+
+
+# --- Kuil kecil di bukit (landmark ala Zelda) ---
+
+func _create_shrine() -> void:
+	var shrine := Node3D.new()
+	shrine.name = "Shrine"
+	var hx := -40.0
+	var hz := -80.0
+	var hy := get_height(hx, hz)
+	shrine.position = Vector3(hx, hy, hz)
+	var stone := StandardMaterial3D.new()
+	stone.albedo_color = Color(0.62, 0.60, 0.55)
+	stone.roughness = 0.9
+	# Alas batu.
+	var base := MeshInstance3D.new()
+	var base_mesh := BoxMesh.new()
+	base_mesh.size = Vector3(6.0, 0.6, 6.0)
+	base.mesh = base_mesh
+	base.position = Vector3(0, 0.3, 0)
+	base.material_override = stone
+	shrine.add_child(base)
+	# 4 pilar.
+	for px in [-2.0, 2.0]:
+		for pz in [-2.0, 2.0]:
+			var pillar := MeshInstance3D.new()
+			var pm := CylinderMesh.new()
+			pm.top_radius = 0.35
+			pm.bottom_radius = 0.4
+			pm.height = 3.0
+			pillar.mesh = pm
+			pillar.position = Vector3(px, 2.1, pz)
+			pillar.material_override = stone
+			shrine.add_child(pillar)
+	# Atap.
+	var roof := MeshInstance3D.new()
+	var rm := BoxMesh.new()
+	rm.size = Vector3(6.5, 0.4, 6.5)
+	roof.mesh = rm
+	roof.position = Vector3(0, 3.8, 0)
+	roof.material_override = stone
+	shrine.add_child(roof)
+	add_child(shrine)
