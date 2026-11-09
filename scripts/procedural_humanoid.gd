@@ -22,7 +22,7 @@ class_name ProceduralHumanoid
 # order overrides the panel: a real walk is ~1.4 m/s (5 km/h) and a
 # real run ~3.2 m/s, not a sprint.
 const WALK_SPEED := 1.4
-const RUN_SPEED := 3.2
+const RUN_SPEED := 3.5
 const SWING_TIME := 0.38
 const HIP_STIFFNESS := 260.0
 const HIP_DAMPING := 26.0
@@ -661,7 +661,10 @@ func _physics_process(delta: float) -> void:
 	# Tegap (Bagus, 2026-11-09): torso stays near-vertical. The old
 	# 0.08 forward lean + sway made the figure slouch; lean is now
 	# 0.03 walk / a touch more only when running.
-	body_root.rotation.x = speed_factor * (0.03 if not is_running else 0.06)
+	# A small forward pitch gives running a clear sense of momentum.
+	# Positive X rotation leans the torso toward the character's +Z forward.
+	var forward_lean := 0.025 if not is_running else 0.13
+	body_root.rotation.x = speed_factor * forward_lean
 	body_root.rotation.z = sin(gait_phase) * 0.02 * speed_factor
 	hip_global = body_root.global_position
 
@@ -725,7 +728,9 @@ func _physics_process(delta: float) -> void:
 
 	# --- Arms, 3 joints: shoulder swings, elbow bends, wrist flicks ---
 	# Arms swing opposite to the same-side leg (Singer's counter-swing).
-	var swing_amount := sin(gait_phase) * 0.55 * speed_factor
+	# Walking uses a restrained arm swing; running gets a stronger counter-swing.
+	var arm_swing := 0.30 if not is_running else 0.48
+	var swing_amount := sin(gait_phase) * arm_swing * speed_factor
 	shoulder_l.rotation.x = swing_amount
 	shoulder_r.rotation.x = -swing_amount
 	shoulder_l.rotation.z = 0.06
