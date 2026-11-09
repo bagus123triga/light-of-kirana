@@ -24,13 +24,17 @@ const HIP_STIFFNESS := 260.0
 const HIP_DAMPING := 26.0
 const LAND_BIAS := 0.47
 const FOOT_CLEARANCE := 0.17
-# Proportions that make idle knees nearly straight (Singer's mannequin
-# stands with legs almost extended): leg total 0.96, hip 0.92.
-# The old 0.52+0.52 legs with hip 0.88 forced a 0.31 m knee bend at
-# idle — the crouched / sitting pose in the 2026-11-09 screenshot.
-const LEG_UPPER := 0.48
-const LEG_LOWER := 0.48
+# Proportions (Bagus, 2026-11-09): upper thigh LONGER than lower
+# thigh — 0.52 vs 0.44, total still 0.96 so the idle-knee math and
+# hip ceiling from the previous fix stay valid. Equal 0.48/0.48 made
+# the figure look wrong and not upright.
+const LEG_UPPER := 0.52
+const LEG_LOWER := 0.44
 const HIP_HEIGHT := 1.0
+# Arms: 3 joints — shoulder, elbow, wrist (Bagus, 2026-11-09).
+# The old single-capsule arm had no elbow at all.
+const ARM_UPPER := 0.28
+const ARM_LOWER := 0.26
 const STEP_LATERAL := 0.11
 const GRAVITY := 20.0
 
@@ -52,6 +56,10 @@ var _was_airborne := false
 var body_root: Node3D
 var shoulder_l: Node3D
 var shoulder_r: Node3D
+var elbow_l: Node3D
+var elbow_r: Node3D
+var wrist_l: Node3D
+var wrist_r: Node3D
 var thigh_mesh: Array[MeshInstance3D] = []
 var shin_mesh: Array[MeshInstance3D] = []
 var foot_mesh: Array[MeshInstance3D] = []
@@ -61,7 +69,10 @@ var foot_target_pos: Array[Vector3] = []
 var foot_from_pos: Array[Vector3] = []
 var foot_step_t: Array[float] = [0.0, 0.0]
 var foot_stepping: Array[bool] = [false, false]
+var foot_yaw: Array[float] = [0.0, 0.0]
 var knee_pos: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO]
+var flight_timer := 0.0
+var foot_clamp_count := 0
 
 
 func _orange_material() -> StandardMaterial3D:
@@ -123,16 +134,43 @@ func _ready() -> void:
 	head.position = Vector3(0, 0.72, 0)
 	body_root.add_child(head)
 
-	shoulder_l = Node3D.new()
-	shoulder_l.position = Vector3(-0.21, 0.5, 0)
-	body_root.add_child(shoulder_l)
-	shoulder_r = Node3D.new()
-	shoulder_r.position = Vector3(0.21, 0.5, 0)
-	body_root.add_child(shoulder_r)
-	for shoulder in [shoulder_l, shoulder_r]:
-		var arm := _limb(0.05, 0.5, mat)
-		arm.position = Vector3(0, -0.25, 0)
-		shoulder.add_child(arm)
+	# Arms, 3 joints each: shoulder -> elbow -> wrist -> hand.
+	# Hierarchy does the posing: shoulder swings, elbow bends,
+	# wrist adds a small flick. Upper arm 0.28, forearm 0.26.
+	var shoulders: Array[Node3D] = []
+	for side in [-1.0, 1.0]:
+		var shoulder := Node3D.new()
+		shoulder.position = Vector3(side * 0.21, 0.5, 0)
+		body_root.add_child(shoulder)
+		var upper := _limb(0.05, ARM_UPPER, mat)
+		upper.position = Vector3(0, -ARM_UPPER * 0.5, 0)
+		shoulder.add_child(upper)
+		var elbow := Node3D.new()
+		elbow.position = Vector3(0, -ARM_UPPER, 0)
+		shoulder.add_child(elbow)
+		var forearm := _limb(0.045, ARM_LOWER, mat)
+		forearm.position = Vector3(0, -ARM_LOWER * 0.5, 0)
+		elbow.add_child(forearm)
+		var wrist := Node3D.new()
+		wrist.position = Vector3(0, -ARM_LOWER, 0)
+		elbow.add_child(wrist)
+		var hand := MeshInstance3D.new()
+		var hand_mesh := SphereMesh.new()
+		hand_mesh.radius = 0.06
+		hand_mesh.height = 0.12
+		hand.mesh = hand_mesh
+		hand.material_override = mat
+		hand.position = Vector3(0, -0.05, 0)
+		wrist.add_child(hand)
+		shoulders.append(shoulder)
+		if side < 0.0:
+			elbow_l = elbow
+			wrist_l = wrist
+		else:
+			elbow_r = elbow
+			wrist_r = wrist
+	shoulder_l = shoulders[0]
+	shoulder_r = shoulders[1]
 
 	for side in [-1.0, 1.0]:
 		var thigh := _limb(0.06, LEG_UPPER, mat)
@@ -223,9 +261,19 @@ func _physics_process(delta: float) -> void:
 	# arrives, otherwise the body outruns its feet and they drag.
 	# Stride is capped at 0.45 m (walk) so a planted foot never ends up
 	# further from the hip than the legs can reach.
-	var stride_max := 0.45 if not is_running else 0.70
+	var stride_max := 0.45 if not is_running else 0.85
 	var stride := clampf(speed * 0.26, 0.18, stride_max)
-	var swing := clampf(stride / maxf(speed, 0.5), 0.22, SWING_TIME) if moving else SWING_TIME
+	var swing := clampf(stride / maxf(speed, 0.5), 0.16, SWING_TIME) if moving else SWING_TIME
+	# Run flight phase (Singer): after a step lands while running, the
+	# body is briefly airborne with BOTH feet tucked — that is what
+	# makes running look like running instead of sliding (ngesot).
+	# Without it the support foot stays planted while the body moves
+	# ~1 m, and the IK clamp drags it along the ground.
+	if flight_timer > 0.0:
+		flight_timer -= delta
+		for i in 2:
+			foot_planted_pos[i] = hip_global + Vector3(0, -0.5, 0) + right * (-1.0 if i == 0 else 1.0) * 0.08
+			foot_planted_pos[i].y = hip_global.y - 0.5
 	for i in 2:
 		var side := -1.0 if i == 0 else 1.0
 		if foot_stepping[i]:
@@ -240,12 +288,18 @@ func _physics_process(delta: float) -> void:
 				foot_planted_pos[i] = foot_target_pos[i]
 				foot_planted_pos[i].y = 0.05
 				steps_taken += 1
-		elif on_floor_now:
+				if is_running and speed_factor > 0.6:
+					flight_timer = 0.12
+		elif on_floor_now and flight_timer <= 0.0:
 			var ideal := global_position + wish_dir * stride * LAND_BIAS + right * side * STEP_LATERAL + forward * 0.05
 			ideal.y = 0.05
 			var lag := (ideal - foot_planted_pos[i]).dot(forward) if moving else (ideal - foot_planted_pos[i]).length()
 			var other_stepping := foot_stepping[1 - i]
-			if (moving and lag > 0.15 and not other_stepping) or (not moving and lag > 0.25 and not other_stepping):
+			# Walk: one foot at a time (stable). Run: overlap allowed —
+			# the support foot must lift as soon as the body passes it,
+			# otherwise it gets dragged (ngesot).
+			var gate := (not other_stepping) or is_running
+			if (moving and lag > 0.15 and gate) or (not moving and lag > 0.25 and not other_stepping):
 				var target := global_position + wish_dir * stride + right * side * STEP_LATERAL + forward * 0.05
 				target.y = 0.05
 				foot_from_pos[i] = foot_planted_pos[i]
@@ -287,18 +341,24 @@ func _physics_process(delta: float) -> void:
 	# knee bend (0.16 m) that would not go away.
 	var hip_ceiling := 0.05 + sqrt(maxf(leg_len * leg_len - horiz_max * horiz_max, 0.55 * 0.55))
 	var bob := sin(gait_phase * 2.0) * 0.02 * speed_factor if moving else sin(time_alive * 1.6) * 0.012
-	var hip_target := minf(HIP_HEIGHT + bob - 0.04 * speed_factor, hip_ceiling)
+	var flight_lift := 0.06 if flight_timer > 0.0 else 0.0
+	var hip_target := minf(HIP_HEIGHT + bob - 0.04 * speed_factor + flight_lift, hip_ceiling + flight_lift)
 	hip_vel_y += (HIP_STIFFNESS * (hip_target - hip_y) - HIP_DAMPING * hip_vel_y) * delta
 	hip_y = clampf(hip_y + hip_vel_y * delta, 0.55, 1.02)
 	body_root.position.y = hip_y
-	body_root.rotation.x = speed_factor * 0.08
-	body_root.rotation.z = sin(gait_phase) * 0.03 * speed_factor
+	# Tegap (Bagus, 2026-11-09): torso stays near-vertical. The old
+	# 0.08 forward lean + sway made the figure slouch; lean is now
+	# 0.03 walk / a touch more only when running.
+	body_root.rotation.x = speed_factor * (0.03 if not is_running else 0.06)
+	body_root.rotation.z = sin(gait_phase) * 0.02 * speed_factor
 	hip_global = body_root.global_position
 
 	# --- Two-bone IK + foot placement ---
 	# Visual ankle is clamped to leg reach so the shin can never detach
 	# from the foot, even at the far end of a stride (Singer's pendulum
 	# body does this by dipping the hip; the clamp is the safety net).
+	# The clamp counter is a test signal: if it fires often while
+	# running, the feet are being dragged (ngesot).
 	for i in 2:
 		var side := -1.0 if i == 0 else 1.0
 		var hip_joint := hip_global + right * side * 0.09
@@ -306,16 +366,43 @@ func _physics_process(delta: float) -> void:
 		var to_ankle := ankle - hip_joint
 		if to_ankle.length() > LEG_UPPER + LEG_LOWER - 0.02:
 			ankle = hip_joint + to_ankle.normalized() * (LEG_UPPER + LEG_LOWER - 0.02)
+			foot_clamp_count += 1
 		var knee := _solve_two_bone(hip_joint, ankle, forward)
 		knee_pos[i] = knee
 		_place_limb(thigh_mesh[i], hip_joint, knee)
 		_place_limb(shin_mesh[i], knee, ankle)
-		foot_mesh[i].global_position = ankle + forward * 0.05
-		foot_mesh[i].rotation.y = facing_yaw
+		# Foot orientation (Bagus, 2026-11-09): the sole must FOLLOW
+		# the movement direction. The old code set the foot's LOCAL
+		# rotation.y = facing_yaw on top of the body's own facing_yaw
+		# — the yaw was doubled, so when turning left/right the feet
+		# pointed backwards / tilted. Now the foot is placed by its
+		# GLOBAL transform: yaw tracks the step direction while
+		# stepping, the facing while planted; pitch lets the toe drop
+		# mid-swing (foot dangles) and is flat (0) when planted.
+		var step_dir := foot_target_pos[i] - foot_from_pos[i]
+		var want_yaw := facing_yaw
+		if foot_stepping[i] and step_dir.length() > 0.01:
+			want_yaw = atan2(step_dir.x, step_dir.z)
+		foot_yaw[i] = lerp_angle(foot_yaw[i], want_yaw, clampf(delta * 10.0, 0.0, 1.0))
+		var foot_pitch := 0.0
+		if foot_stepping[i]:
+			foot_pitch = sin(PI * clampf(foot_step_t[i], 0.0, 1.0)) * 0.35
+		var foot_fwd := Vector3(sin(foot_yaw[i]), 0, cos(foot_yaw[i]))
+		var foot_pos := ankle + foot_fwd * 0.05
+		foot_pos.y = ankle.y
+		foot_mesh[i].global_transform = Transform3D(Basis.from_euler(Vector3(foot_pitch, foot_yaw[i], 0.0)), foot_pos)
 
-	# --- Arms swing opposite to the same-side leg ---
+	# --- Arms, 3 joints: shoulder swings, elbow bends, wrist flicks ---
+	# Arms swing opposite to the same-side leg (Singer's counter-swing).
 	var swing_amount := sin(gait_phase) * 0.55 * speed_factor
 	shoulder_l.rotation.x = swing_amount
 	shoulder_r.rotation.x = -swing_amount
-	shoulder_l.rotation.z = 0.08
-	shoulder_r.rotation.z = -0.08
+	shoulder_l.rotation.z = 0.06
+	shoulder_r.rotation.z = -0.06
+	# Elbow: bent ~0.4 rad at rest, flexes a bit more on the forward
+	# swing; wrist keeps the hand roughly level with a small flick.
+	var elbow_bend := 0.4 + absf(swing_amount) * 0.3
+	elbow_l.rotation.x = -elbow_bend
+	elbow_r.rotation.x = -elbow_bend
+	wrist_l.rotation.x = elbow_bend * 0.5
+	wrist_r.rotation.x = elbow_bend * 0.5

@@ -62,14 +62,27 @@ func _init() -> void:
 		if dist > 0.97 or dist < 0.3:
 			failures.append("leg %d hip-ankle distance impossible: %.2f" % [i, dist])
 
-	# 4. Run 2 s: must be faster than walk.
+	# 3b. Arms have 3 joints (Bagus, 2026-11-09): shoulder, elbow,
+	# wrist — the old single-capsule arm had no elbow at all.
+	if humanoid.elbow_l == null or humanoid.elbow_r == null or humanoid.wrist_l == null or humanoid.wrist_r == null:
+		failures.append("arm joints missing: elbow/wrist nodes not built")
+	elif absf(humanoid.elbow_l.rotation.x + 0.4) > 0.15:
+		failures.append("elbow not bent at idle: %.2f" % humanoid.elbow_l.rotation.x)
+
+	# 4. Run 2 s: must be faster than walk, and feet must not drag
+	# (ngesot): the IK clamp counter must stay low — a clamped ankle
+	# means the planted foot was dragged along the ground.
 	var run_start := humanoid.position
 	humanoid.is_running = true
+	humanoid.foot_clamp_count = 0
 	for i in 120:
 		humanoid._physics_process(1.0 / 60.0)
 	var run_moved := (humanoid.position - run_start).length()
 	if run_moved < 5.0:
 		failures.append("run moved too little: %.2f m in 2 s" % run_moved)
+	if humanoid.foot_clamp_count > 20:
+		failures.append("run dragged feet: ankle clamped %d times in 2 s" % humanoid.foot_clamp_count)
+	print("RUN_CLAMP_TEST clamps=%d" % humanoid.foot_clamp_count)
 
 	# 5. Camera framing (regression for screenshot 2026-11-09 20:55 WIB:
 	#    humanoid was at the bottom edge, half cut off, because the old
