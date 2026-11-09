@@ -181,8 +181,11 @@ func _process(delta: float) -> void:
 	kb.y += 1.0 if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN) else 0.0
 	kb.x -= 1.0 if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT) else 0.0
 	kb.x += 1.0 if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT) else 0.0
-	# Joystick output: y down = +, so forward is -output.y.
-	var stick := Vector2(joystick.output.x, -joystick.output.y) if joystick != null else Vector2.ZERO
+	# BUG FIX 2026-11-09: joystick output y down = +, and keyboard
+	# forward is move2d.y = -1 (W). So stick.y = output.y directly:
+	# pushing UP gives output.y = -1 = forward. The old code negated
+	# it, so pushing up walked BACKWARDS.
+	var stick := joystick.output if joystick != null else Vector2.ZERO
 	var move2d := kb + stick
 	if move2d.length() > 1.0:
 		move2d = move2d.normalized()

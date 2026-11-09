@@ -22,6 +22,15 @@ func _init() -> void:
 		failures.append("idle hip_y out of range: %s" % humanoid.hip_y)
 	if humanoid.steps_taken != 0:
 		failures.append("idle should not step, steps=%d" % humanoid.steps_taken)
+	# Idle knees must be nearly straight (regression for the crouched /
+	# sitting idle in the 2026-11-09 21:01 screenshot): knee forward
+	# offset from the hip-ankle line must stay under 0.20 m.
+	for i in 2:
+		var hip_j: Vector3 = humanoid.body_root.global_position + Vector3(0, 0, 0)
+		var mid := (hip_j + humanoid.foot_planted_pos[i]) * 0.5
+		var knee_fwd := (humanoid.knee_pos[i] - mid).dot(Vector3(0, 0, 1))
+		if knee_fwd > 0.12:
+			failures.append("idle knee %d bent too far forward: %.2f m" % [i, knee_fwd])
 
 	# 2. Walk forward 4 s: steps must happen, planted feet must stay on y=0.05,
 	#    body must keep moving forward and stay upright.
@@ -45,12 +54,12 @@ func _init() -> void:
 	if humanoid.hip_y < 0.7 or humanoid.hip_y > 1.05:
 		failures.append("walk hip_y out of range: %s" % humanoid.hip_y)
 
-	# 3. Two-bone IK: hip-ankle distance must stay within leg reach (0.52+0.52).
+	# 3. Two-bone IK: hip-ankle distance must stay within leg reach (0.48+0.48).
 	for i in 2:
 		var hip_joint: Vector3 = humanoid.body_root.global_position + Vector3(0, 0, 0)
 		var ankle: Vector3 = humanoid.foot_planted_pos[i]
 		var dist := (ankle - hip_joint).length()
-		if dist > 1.05 or dist < 0.3:
+		if dist > 0.97 or dist < 0.3:
 			failures.append("leg %d hip-ankle distance impossible: %.2f" % [i, dist])
 
 	# 4. Run 2 s: must be faster than walk.
@@ -85,6 +94,27 @@ func _init() -> void:
 		if absf(screen_pos.x - centre.x) > vp_size.x * 0.2 or absf(screen_pos.y - centre.y) > vp_size.y * 0.2:
 			failures.append("camera framing: chest at %s, not near centre %s (viewport %s)" % [screen_pos, centre, vp_size])
 		print("CAM_TEST chest_screen=%s centre=%s viewport=%s" % [screen_pos, centre, vp_size])
+
+	# 6. Real physics in the main scene (regression for 2026-11-09 21:01:
+	#    the first build had no CollisionShape3D, so is_on_floor() was
+	#    always false, the step planner never stepped and jump never
+	#    fired). The humanoid must stand on the floor, then lift off
+	#    when want_jump is set.
+	var hum3: ProceduralHumanoid = main_inst.humanoid
+	for i in 30:
+		await physics_frame
+	if not hum3.is_on_floor():
+		failures.append("main scene: humanoid is not on the floor after 30 physics frames")
+	else:
+		var y0 := hum3.position.y
+		hum3.want_jump = true
+		var peak_y := y0
+		for i in 20:
+			await physics_frame
+			peak_y = maxf(peak_y, hum3.position.y)
+		if peak_y <= y0 + 0.02:
+			failures.append("main scene: jump did not lift the humanoid (peak y=%.2f, start y=%.2f)" % [peak_y, y0])
+		print("JUMP_TEST start_y=%.2f peak_y=%.2f" % [y0, peak_y])
 
 	print("WALK_TEST hip_y=%.2f steps=%d walked=%.2f m ran=%.2f m planted_err=%.3f" % [humanoid.hip_y, humanoid.steps_taken, moved, run_moved, max_planted_err])
 	if failures.is_empty():

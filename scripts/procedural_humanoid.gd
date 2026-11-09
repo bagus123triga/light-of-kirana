@@ -4,7 +4,11 @@ class_name ProceduralHumanoid
 ## Procedural walking, no animation clips, no mocap.
 ## Reference: Procedural Humanoid Locomotion — Benjamin J Singer
 ## https://procedural-humanoid.benjaminjsinger.com/
-## Architecture (followed, not invented):
+## Singer publishes NO source repo (searched 2026-11-09, not found), so
+## this is NOT a 1:1 copy of his code — it follows his PUBLISHED
+## architecture and tuning-panel values, and every deviation from them
+## is called out in comments instead of being invented silently.
+## Architecture (his, followed):
 ##   1. Step planner — stance target projected from velocity (land bias 0.47)
 ##   2. Spring-damped body — hip stiffness 260 / damping 26
 ##   3. Two-bone IK — analytic, knee bends forward, feet stay planted
@@ -20,9 +24,13 @@ const HIP_STIFFNESS := 260.0
 const HIP_DAMPING := 26.0
 const LAND_BIAS := 0.47
 const FOOT_CLEARANCE := 0.17
-const LEG_UPPER := 0.52
-const LEG_LOWER := 0.52
-const HIP_HEIGHT := 0.88
+# Proportions that make idle knees nearly straight (Singer's mannequin
+# stands with legs almost extended): leg total 0.96, hip 0.92.
+# The old 0.52+0.52 legs with hip 0.88 forced a 0.31 m knee bend at
+# idle — the crouched / sitting pose in the 2026-11-09 screenshot.
+const LEG_UPPER := 0.48
+const LEG_LOWER := 0.48
+const HIP_HEIGHT := 1.0
 const STEP_LATERAL := 0.11
 const GRAVITY := 20.0
 
@@ -53,6 +61,7 @@ var foot_target_pos: Array[Vector3] = []
 var foot_from_pos: Array[Vector3] = []
 var foot_step_t: Array[float] = [0.0, 0.0]
 var foot_stepping: Array[bool] = [false, false]
+var knee_pos: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO]
 
 
 func _orange_material() -> StandardMaterial3D:
@@ -75,6 +84,21 @@ func _limb(radius: float, length: float, mat: Material) -> MeshInstance3D:
 
 
 func _ready() -> void:
+	# BUG FIX 2026-11-09: the first build had NO CollisionShape3D, so
+	# is_on_floor() was ALWAYS false. That one missing shape broke two
+	# things at once: the step planner (gated on on-floor) never stepped
+	# — legs frozen while arms swung — and jump (gated on on-floor)
+	# never fired. A CharacterBody3D without a shape cannot stand.
+	var shape := CollisionShape3D.new()
+	var capsule := CapsuleShape3D.new()
+	capsule.radius = 0.28
+	capsule.height = 1.6
+	shape.shape = capsule
+	shape.position = Vector3(0, 0.85, 0)
+	add_child(shape)
+	floor_snap_length = 0.3
+	floor_max_angle = deg_to_rad(45.0)
+
 	var mat := _orange_material()
 	body_root = Node3D.new()
 	body_root.name = "BodyRoot"
@@ -180,6 +204,8 @@ func _physics_process(delta: float) -> void:
 			if want_jump:
 				velocity.y = 6.0
 				want_jump = false
+			else:
+				velocity.y = -0.5
 		else:
 			velocity.y -= GRAVITY * delta
 		velocity.x = wish_dir.x * speed
@@ -192,7 +218,14 @@ func _physics_process(delta: float) -> void:
 	var hip_global := body_root.global_position
 
 	# --- Step planner (Singer) ---
-	var swing := 0.34 if not is_running else 0.28
+	# Swing time is DERIVED from stride / speed (reference swing 0.38 s
+	# is the cap, not a fixed timer): the foot must land as the body
+	# arrives, otherwise the body outruns its feet and they drag.
+	# Stride is capped at 0.45 m (walk) so a planted foot never ends up
+	# further from the hip than the legs can reach.
+	var stride_max := 0.45 if not is_running else 0.70
+	var stride := clampf(speed * 0.26, 0.18, stride_max)
+	var swing := clampf(stride / maxf(speed, 0.5), 0.22, SWING_TIME) if moving else SWING_TIME
 	for i in 2:
 		var side := -1.0 if i == 0 else 1.0
 		if foot_stepping[i]:
@@ -208,8 +241,6 @@ func _physics_process(delta: float) -> void:
 				foot_planted_pos[i].y = 0.05
 				steps_taken += 1
 		elif on_floor_now:
-			var stride_max := 0.55 if not is_running else 0.85
-			var stride := clampf(speed * 0.30, 0.2, stride_max)
 			var ideal := global_position + wish_dir * stride * LAND_BIAS + right * side * STEP_LATERAL + forward * 0.05
 			ideal.y = 0.05
 			var lag := (ideal - foot_planted_pos[i]).dot(forward) if moving else (ideal - foot_planted_pos[i]).length()
@@ -232,13 +263,33 @@ func _physics_process(delta: float) -> void:
 		hip_vel_y -= 1.5
 		_was_airborne = false
 
-	# --- Spring-damped body (Singer: stiffness 260, damping 26) ---
+	# --- Spring-damped pendulum body (Singer: stiffness 260, damping 26) ---
+	# The hip is a pendulum over the support foot: its height ceiling is
+	# set by how far the furthest planted foot is from the body, so the
+	# legs are never asked to reach further than they are long. The hip
+	# dips as the body moves away from the support foot and rises again
+	# as the next foot plants — that dip/rise IS the walk bob, not a
+	# fixed timer. (The old fixed hip target + 1.04 m legs is what made
+	# the idle crouch: the spring held the hip low while the legs were
+	# long, so both knees had to bend 0.31 m just to stand still.)
 	if moving:
 		gait_phase += delta * (speed / 0.55) * PI
+	var horiz_max := 0.0
+	for i in 2:
+		if not foot_stepping[i]:
+			var dx := foot_planted_pos[i].x - global_position.x
+			var dz := foot_planted_pos[i].z - global_position.z
+			horiz_max = maxf(horiz_max, sqrt(dx * dx + dz * dz))
+	var leg_len := LEG_UPPER + LEG_LOWER
+	# Ceiling is ankle height (0.05) + the vertical reach left over
+	# after the horizontal offset. The old formula forgot the +0.05,
+	# capping the hip 5 cm too low — that 5 cm was exactly the idle
+	# knee bend (0.16 m) that would not go away.
+	var hip_ceiling := 0.05 + sqrt(maxf(leg_len * leg_len - horiz_max * horiz_max, 0.55 * 0.55))
 	var bob := sin(gait_phase * 2.0) * 0.02 * speed_factor if moving else sin(time_alive * 1.6) * 0.012
-	var hip_target := HIP_HEIGHT + bob - 0.05 * speed_factor
+	var hip_target := minf(HIP_HEIGHT + bob - 0.04 * speed_factor, hip_ceiling)
 	hip_vel_y += (HIP_STIFFNESS * (hip_target - hip_y) - HIP_DAMPING * hip_vel_y) * delta
-	hip_y = clampf(hip_y + hip_vel_y * delta, 0.55, 1.05)
+	hip_y = clampf(hip_y + hip_vel_y * delta, 0.55, 1.02)
 	body_root.position.y = hip_y
 	body_root.rotation.x = speed_factor * 0.08
 	body_root.rotation.z = sin(gait_phase) * 0.03 * speed_factor
@@ -256,6 +307,7 @@ func _physics_process(delta: float) -> void:
 		if to_ankle.length() > LEG_UPPER + LEG_LOWER - 0.02:
 			ankle = hip_joint + to_ankle.normalized() * (LEG_UPPER + LEG_LOWER - 0.02)
 		var knee := _solve_two_bone(hip_joint, ankle, forward)
+		knee_pos[i] = knee
 		_place_limb(thigh_mesh[i], hip_joint, knee)
 		_place_limb(shin_mesh[i], knee, ankle)
 		foot_mesh[i].global_position = ankle + forward * 0.05
