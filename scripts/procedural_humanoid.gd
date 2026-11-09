@@ -356,32 +356,32 @@ func _resolve_foot_collision(right: Vector3, forward: Vector3) -> void:
 
 
 func _try_step_up(horizontal_delta: Vector3) -> bool:
-	# Sample the actual tread surface at the character's next horizontal
-	# position. This does not depend on a wall-collision being reported:
-	# short stair risers can be missed by a capsule's rounded lower edge.
+	# The stair Area supplies the actual uphill direction. Probe one capsule
+	# radius ahead of the character so we see the NEXT tread, not the tread
+	# currently underneath the character's centre.
 	if not is_on_stairs or not is_on_floor() or horizontal_delta.length() < 0.0001:
 		return false
-
-	var next_foot_point := global_position + horizontal_delta
-	var next_floor_y := _foot_ground_y(next_foot_point)
-	var rise := (next_floor_y - 0.05) - global_position.y
-	# Only assist upward steps. Downward travel is handled by gravity and
-	# floor snapping, so the character naturally plants onto each lower tread.
-	if rise <= 0.015 or rise > MAX_STAIR_STEP_UP:
+	var stair_forward := Vector3(stair_up_direction.x, 0.0, stair_up_direction.z)
+	if stair_forward.length() < 0.001:
+		return false
+	stair_forward = stair_forward.normalized()
+	if horizontal_delta.normalized().dot(stair_forward) < 0.35:
 		return false
 
-	# Lift the capsule by the exact detected tread height, check ceiling
-	# clearance, then check the forward path from the raised transform.
-	var lift := Vector3.UP * rise
-	if test_move(global_transform, lift):
-		return false
-	var raised_transform := global_transform.translated(lift)
-	if test_move(raised_transform, horizontal_delta):
+	var probe := global_position + horizontal_delta + stair_forward * 0.30
+	var surface_y := _foot_ground_y(probe) - 0.05
+	var rise := surface_y - global_position.y
+	# A real stair riser is one discrete rise. Never auto-lift for a drop,
+	# a landing, or a platform higher than the step-up limit.
+	if rise <= 0.025 or rise > MAX_STAIR_STEP_UP:
 		return false
 
-	# Consume this frame's horizontal displacement here; the caller skips
-	# applying it a second time through move_and_slide().
-	global_position += horizontal_delta + lift
+	# The previous implementation tried test_move() upward while the capsule
+	# was already beside/overlapping the vertical riser. That probe hit the
+	# riser itself and rejected every climb. The tread ray has already
+	# identified the exact next step; raise by that rise, then let the normal
+	# CharacterBody solver resolve horizontal contact and floor state.
+	global_position.y += rise
 	velocity.y = 0.0
 	return true
 
@@ -518,10 +518,7 @@ func _physics_process(delta: float) -> void:
 			velocity.y -= GRAVITY * delta
 		velocity.x = horizontal_motion.x
 		velocity.z = horizontal_motion.z
-		var stair_step_consumed := _try_step_up(Vector3(horizontal_motion.x, 0.0, horizontal_motion.z) * delta)
-		if stair_step_consumed:
-			velocity.x = 0.0
-			velocity.z = 0.0
+		_try_step_up(Vector3(horizontal_motion.x, 0.0, horizontal_motion.z) * delta)
 		move_and_slide()
 
 	# Drive gait timing from actual smoothed horizontal movement, not
@@ -614,6 +611,8 @@ func _physics_process(delta: float) -> void:
 			var ideal := global_position + step_forward * stride * LAND_BIAS + step_right * side * STEP_LATERAL + step_forward * 0.05
 			ideal.y = _foot_ground_y(ideal)
 			var lag := (ideal - foot_planted_pos[i]).dot(forward) if moving else (ideal - foot_planted_pos[i]).length()
+			var stair_height_error := absf(ideal.y - foot_planted_pos[i].y)
+			var stair_needs_step := is_on_stairs and moving and (lag > 0.08 or stair_height_error > 0.06)
 			var other_stepping := foot_stepping[1 - i]
 			# Alternation, always. Walk: one foot at a time. Run: the
 			# second foot may only toe off once the first is past 75%
@@ -625,7 +624,7 @@ func _physics_process(delta: float) -> void:
 			# During a sharp turn keep a support foot down even at run speed.
 			var turning_sharply := wish_dir.length() > 0.05 and forward.dot(wish_dir.normalized()) < 0.7
 			var gate := (not other_stepping) or (is_running and not turning_sharply and foot_step_t[1 - i] > RUN_GATE)
-			if (moving and lag > 0.15 and gate) or (not moving and lag > 0.25 and not other_stepping):
+			if (is_on_stairs and stair_needs_step and gate) or (not is_on_stairs and moving and lag > 0.15 and gate) or (not moving and lag > 0.25 and not other_stepping):
 				# Predict the body position at touchdown and place the foot a
 				# small distance ahead of it. RUN_STRIDE is total step reach,
 				# not a fixed world-space point the body can run past.
