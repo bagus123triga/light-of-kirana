@@ -1,7 +1,0 @@
-[gd_scene format=3]
-
-[ext_resource type="ArrayMesh" uid="uid://dnga6iirklvm" path="res://maps/lf_map/shared/fern_0.res" id="1_ixaha"]
-
-[node name="Fern0" type="MeshInstance3D" unique_id=790387653]
-cast_shadow = 0
-mesh = ExtResource("1_ixaha")

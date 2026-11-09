@@ -1,7 +1,0 @@
-[gd_scene format=3]
-
-[ext_resource type="ArrayMesh" uid="uid://bstpbfusu5ovy" path="res://maps/lf_map/shared/reeds_0.res" id="1_k58fp"]
-
-[node name="Reeds0" type="MeshInstance3D" unique_id=719621293]
-cast_shadow = 0
-mesh = ExtResource("1_k58fp")
