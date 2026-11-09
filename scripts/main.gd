@@ -60,9 +60,15 @@ func _run_world_test() -> void:
 	if _world == null:
 		failures.append("world null")
 	else:
-		var grass := _world.get_node_or_null("Grass")
-		if grass == null or grass.multimesh.instance_count < 1000:
-			failures.append("rumput kurang/tidak ada")
+		# Rumput kini dipecah per chunk (Grass_0_0 dst) — jumlahkan semuanya.
+		var total_grass := 0
+		for c in _world._grass_chunks:
+			var node: MultiMeshInstance3D = c["node"]
+			total_grass += node.multimesh.instance_count
+		if _world._grass_chunks.size() != 16:
+			failures.append("chunk rumput bukan 16: %d" % _world._grass_chunks.size())
+		if total_grass < 100000:
+			failures.append("rumput kurang/tidak ada: %d" % total_grass)
 		if _world.get_node_or_null("Water") == null:
 			failures.append("air tidak ada")
 		if _world.get_node_or_null("Terrain") == null:
@@ -72,6 +78,20 @@ func _run_world_test() -> void:
 			failures.append("spawn tidak rata: h=%f" % h)
 		if _world.get_ground_type(0.0, 6.0) < 0 or _world.get_ground_type(0.0, 6.0) > 2:
 			failures.append("jenis tanah invalid")
+		# Dataran DATAR (minta Bagus): area tengah (bukan bukit/danau)
+		# tingginya cuma undulasi halus, bukan bergelombang.
+		var h_mid: float = _world.get_height(-20.0, -20.0)
+		if absf(h_mid) > 1.5:
+			failures.append("dataran tengah terlalu bergelombang: h=%f" % h_mid)
+		# Bukit: di titik HILLS tingginya harus jelas (bukan datar).
+		var h_hill: float = _world.get_height(-70.0, -60.0)
+		if h_hill < 8.0:
+			failures.append("bukit tidak ada: h=%f" % h_hill)
+		# Jalanan: titik di garis PATHS harus tanah coklat (DIRT).
+		if _world.get_ground_type(4.0, 8.0) != 1:
+			failures.append("jalanan tidak ada di (4,8)")
+		if _world.get_ground_type(-16.0, -2.0) != 1:
+			failures.append("jalanan tidak ada di (-16,-2)")
 		# Sebaran warna tanah: batu jangan mendominasi bukit (dugaan
 		# "atas putih" — batu abu-abu di mana-mana), rumput harus dominan.
 		# World kini 256 m, jadi sampel di ±120 (bukan ±60).
@@ -101,11 +121,8 @@ func _run_world_test() -> void:
 		# World 256 m (bukan 128): ujung world masih ada tanah, bukan void.
 		if absf(_world.get_height(-120.0, -120.0)) > 6.0:
 			failures.append("ujung world terlalu curam")
-		# Rumput: world 4x luas, jumlah helai harus naik (150k).
-		if grass == null or grass.multimesh.instance_count < 80000:
-			failures.append("rumput terlalu sedikit untuk world 256 m")
-		# Langit + siklus hari: node ada, matahari/bulan/bintang/awan ada,
-		# waktu berjalan (siang->sore->malam).
+		# Langit stylized (shader, bukan foto): node ada, shader sky
+		# terpasang, kabut MATI, waktu berjalan (siang->sore->malam).
 		if _sky == null:
 			failures.append("langit null")
 		else:
@@ -114,20 +131,20 @@ func _run_world_test() -> void:
 			if absf(_sky.time_of_day - 12.0) > 0.01:
 				failures.append("set waktu gagal")
 			_sky.set_time_of_day(t0)
-			if _sky.get_node_or_null("StarDome") == null:
-				failures.append("kubah bintang tidak ada")
-			var sun_found := false
-			var moon_found := false
+			var env := _sky.get_node_or_null("WorldEnvironment")
+			# WorldEnvironment dibuat di dalam sky.gd (child pertama).
+			var found_env := false
+			var fog_off := false
 			for child in _sky.get_children():
-				if child is Sprite3D and child.texture != null:
-					if child.texture.resource_path.ends_with("sun.png"):
-						sun_found = true
-					if child.texture.resource_path.ends_with("moon.png"):
-						moon_found = true
-			if not sun_found:
-				failures.append("matahari tidak ada")
-			if not moon_found:
-				failures.append("bulan tidak ada")
+				if child is WorldEnvironment and child.environment != null:
+					found_env = true
+					fog_off = not child.environment.fog_enabled
+					if not (child.environment.sky.sky_material is ShaderMaterial):
+						failures.append("langit bukan shader stylized")
+			if not found_env:
+				failures.append("environment langit tidak ada")
+			elif not fog_off:
+				failures.append("kabut masih nyala (harus mati)")
 		var cam := get_tree().get_first_node_in_group("fly_camera")
 		if cam == null:
 			failures.append("kamera terbang null")

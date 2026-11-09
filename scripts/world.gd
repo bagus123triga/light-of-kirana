@@ -1,11 +1,14 @@
 extends Node3D
 
-## LIGHT OF KIRANA — dunia v3 (world 256 m, minta Bagus 2026-11-09).
-## Tanah berbukit dari heightmap + noise (tanpa addon), bertekstur CC0
-## Poly Haven (rumput / tanah gundul / batu lereng curam, mask per-vertex).
-## Danau bertepi berombak (tanpa garis lurus) + air shader stylized.
-## Rumput MultiMesh + shader angin. Tanpa pohon & batu (minta Bagus 2026-11-09).
-## Langit + siklus hari + kabut (jarak pandang) diatur scripts/sky.gd.
+## LIGHT OF KIRANA — dunia v4 (minta Bagus 2026-11-09).
+## Dataran DATAR (bukan bergelombang semua) + BUKIT di tempat tertentu.
+## Tanah coklat = JALANAN (bukan ngacak). Tanah berbukit dari heightmap
+## + noise (tanpa addon), bertekstur CC0 Poly Haven (rumput / tanah gundul
+## / batu lereng curam, mask per-vertex). Danau bertepi berombak (tanpa
+## garis lurus) + air shader stylized. Rumput MultiMesh + shader angin,
+## dipecah per chunk + dicull di belakang jarak pandang (pengganti kabut).
+## Tanpa pohon & batu (minta Bagus 2026-11-09). Langit + siklus hari
+## diatur scripts/sky.gd (shader stylized, tanpa kabut).
 
 enum GroundType { GRASS, DIRT, ROCK }
 
@@ -14,10 +17,33 @@ const SUBDIV := 256
 const LAKE_CENTER := Vector2(14.0, 12.0)
 const LAKE_RADIUS := 9.0
 const WATER_LEVEL := -0.25
-# World 4x lebih luas lagi (128->256 m); rumput 120k->150k biar tetap
-# rapat tanpa ngelag (150k x 8 vertex, 1 draw call; tanah hijau dari
-# tekstur Grass004 tetap menutupi walau bilah 3D lebih jarang).
-const GRASS_COUNT := 150000
+# Rumput PADAT (minta Bagus, "terlalu berjarak"): 150k->300k.
+# Dipecah 4x4 chunk biar bisa dicull per chunk (hemat GPU).
+const GRASS_COUNT := 300000
+const GRASS_CHUNKS := 4  # 4x4 = 16 chunk
+const VIEW_DISTANCE := 150.0  # jarak pandang: rumput di belakang ini tidak di-render
+
+# Bukit (minta Bagus: dataran datar, bukit cuma di tempat tertentu).
+# [tengah, jari-jari, tinggi]. Semua jauh dari spawn (0,6) + danau (14,12)
+# biar area tengah tetap datar.
+const HILLS := [
+	[Vector2(-70.0, -60.0), 30.0, 14.0],
+	[Vector2(80.0, -70.0), 35.0, 18.0],
+	[Vector2(-80.0, 70.0), 25.0, 10.0],
+	[Vector2(75.0, 75.0), 30.0, 12.0],
+	[Vector2(0.0, -90.0), 25.0, 9.0],
+]
+
+# Jalanan tanah coklat (minta Bagus: buat jalanan, bukan ngacak).
+# Tiap jalan = garis titik-titik (polyline); lebar 4 m (2 m tiap sisi).
+# Semua berangkat dari spawn (0,6).
+const PATHS := [
+	[Vector2(0.0, 6.0), Vector2(4.0, 8.0), Vector2(8.0, 10.0), Vector2(11.0, 11.0)],  # spawn -> danau
+	[Vector2(0.0, 6.0), Vector2(-8.0, 3.0), Vector2(-16.0, -2.0), Vector2(-24.0, -8.0)],  # spawn -> barat
+	[Vector2(0.0, 6.0), Vector2(3.0, -2.0), Vector2(6.0, -10.0), Vector2(9.0, -18.0)],  # spawn -> selatan
+	[Vector2(0.0, 6.0), Vector2(10.0, 4.0), Vector2(20.0, 0.0), Vector2(30.0, -5.0)],  # spawn -> timur
+]
+const PATH_HALF_WIDTH := 2.0
 
 var grass_material: ShaderMaterial
 var terrain_material: ShaderMaterial
@@ -26,13 +52,16 @@ var wind_strength := 0.35
 var _height_noise := FastNoiseLite.new()
 var _dirt_noise := FastNoiseLite.new()
 var _ambience: Node
+var _grass_chunks: Array[Dictionary] = []
 
 
 func _ready() -> void:
 	_height_noise.seed = 1234
 	_height_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	_height_noise.frequency = 0.035
-	_height_noise.fractal_octaves = 4
+	# Dataran DATAR (minta Bagus): noise dasar cuma undulasi halus (0.4 m),
+	# bukan bukit bergelombang (dulu 3.0 m). Bukitnya dari HILLS, bukan noise.
+	_height_noise.frequency = 0.02
+	_height_noise.fractal_octaves = 2
 	_dirt_noise.seed = 777
 	_dirt_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	_dirt_noise.frequency = 0.08
@@ -55,6 +84,22 @@ func _process(delta: float) -> void:
 		grass_material.set_shader_parameter("wind_amount", wind_strength)
 	if _ambience and _ambience.has_method("set_wind"):
 		_ambience.set_wind(wind_strength)
+	# Culling rumput (pengganti kabut, minta Bagus): chunk yang jauh dari
+	# kamera (di belakang jarak pandang) tidak di-render sama sekali.
+	_update_grass_culling()
+
+
+func _update_grass_culling() -> void:
+	var cam := get_tree().get_first_node_in_group("fly_camera") as Camera3D
+	if cam == null or _grass_chunks.is_empty():
+		return
+	var cp := cam.global_position
+	var chunk_half_diag := (WORLD_SIZE / GRASS_CHUNKS) * 0.7071
+	for c in _grass_chunks:
+		var center: Vector3 = c["center"]
+		var node: MultiMeshInstance3D = c["node"]
+		var d := Vector2(cp.x - center.x, cp.z - center.z).length()
+		node.visible = d < VIEW_DISTANCE + chunk_half_diag
 
 
 func set_interaction_position(p: Vector3) -> void:
@@ -74,7 +119,17 @@ func _lake_radius_at(angle: float) -> float:
 
 
 func get_height(x: float, z: float) -> float:
-	var h := _height_noise.get_noise_2d(x, z) * 3.0
+	# Dataran DATAR: undulasi halus cuma 0.4 m (bukan 3.0 m).
+	var h := _height_noise.get_noise_2d(x, z) * 0.4
+	# Bukit: gundukan cosinus halus (1 di tengah, 0 di tepi) di titik HILLS.
+	for hill in HILLS:
+		var center: Vector2 = hill[0]
+		var radius: float = hill[1]
+		var height: float = hill[2]
+		var d := Vector2(x, z).distance_to(center)
+		if d < radius:
+			var m := 0.5 + 0.5 * cos(PI * clampf(d / radius, 0.0, 1.0))
+			h += height * m
 	var rel := Vector2(x, z) - LAKE_CENTER
 	var d := rel.length()
 	var r := _lake_radius_at(atan2(rel.y, rel.x))
@@ -88,13 +143,36 @@ func get_height(x: float, z: float) -> float:
 	return h
 
 
+# Jarak titik ke segmen garis (buat jalanan).
+func _dist_to_segment(p: Vector2, a: Vector2, b: Vector2) -> float:
+	var ab := b - a
+	var denom := ab.length_squared()
+	if denom < 0.0001:
+		return p.distance_to(a)
+	var t := clampf((p - a).dot(ab) / denom, 0.0, 1.0)
+	return p.distance_to(a + ab * t)
+
+
+func _dist_to_paths(x: float, z: float) -> float:
+	var p := Vector2(x, z)
+	var best := 1e9
+	for path in PATHS:
+		for i in path.size() - 1:
+			var d := _dist_to_segment(p, path[i], path[i + 1])
+			if d < best:
+				best = d
+	return best
+
+
 func get_ground_type(x: float, z: float) -> int:
 	var e := 0.6
 	var slope := absf(get_height(x + e, z) - get_height(x - e, z)) / (2.0 * e)
 	slope = maxf(slope, absf(get_height(x, z + e) - get_height(x, z - e)) / (2.0 * e))
 	if slope > 0.42:
 		return GroundType.ROCK
-	if _dirt_noise.get_noise_2d(x, z) > 0.25:
+	# Tanah coklat = JALANAN (minta Bagus), bukan bercak ngacak.
+	# Dulu: noise acak. Sekarang: dekat garis PATHS saja.
+	if _dist_to_paths(x, z) < PATH_HALF_WIDTH:
 		return GroundType.DIRT
 	return GroundType.GRASS
 
@@ -284,6 +362,8 @@ func _blade_mesh() -> ArrayMesh:
 
 
 func _create_grass() -> void:
+	# Rumput dipecah 4x4 chunk (biar bisa dicull per chunk di belakang
+	# jarak pandang, pengganti kabut). Tiap chunk 1 MultiMesh.
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 2026
 	var blade := _blade_mesh()
@@ -307,40 +387,50 @@ func _create_grass() -> void:
 	grass_material.set_shader_parameter("still_sway_strength", 0.06)
 	# Bilah lebih runcing: lebar discard 70% (bawah tidak terlalu besar).
 	grass_material.set_shader_parameter("blade_width", 0.7)
-	var multimesh := MultiMesh.new()
-	multimesh.transform_format = MultiMesh.TRANSFORM_3D
-	multimesh.use_colors = false
-	multimesh.use_custom_data = true
-	multimesh.mesh = blade
-	multimesh.instance_count = GRASS_COUNT
-	var placed := 0
-	var guard := 0
-	var half := WORLD_SIZE * 0.5 - 2.0
-	while placed < GRASS_COUNT and guard < GRASS_COUNT * 20:
-		guard += 1
-		var x := rng.randf_range(-half, half)
-		var z := rng.randf_range(-half, half)
-		if get_ground_type(x, z) != GroundType.GRASS:
-			continue
-		var y := get_height(x, z)
-		if y < WATER_LEVEL + 0.05:
-			continue
-		var t := Transform3D(
-			Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * rng.randf_range(0.7, 1.4)),
-			Vector3(x, y, z)
-		)
-		multimesh.set_instance_transform(placed, t)
-		# Warna rumput NGIKUT warna tanah di bawahnya (minta Bagus):
-		# INSTANCE_CUSTOM.rgb = warna tanah titik itu, .a = variasi acak.
-		var gc := _ground_color(x, z)
-		multimesh.set_instance_custom_data(placed, Color(gc.r, gc.g, gc.b, rng.randf()))
-		placed += 1
-	multimesh.instance_count = placed
-	var mmi := MultiMeshInstance3D.new()
-	mmi.name = "Grass"
-	mmi.multimesh = multimesh
-	mmi.material_override = grass_material
-	# Rumput tidak melempar bayangan — bayangan tongkat yang panjang
-	# bikin helai kelihatan makin kaku, dan hemat GPU.
-	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(mmi)
+	var per_chunk := GRASS_COUNT / (GRASS_CHUNKS * GRASS_CHUNKS)
+	var chunk_size := WORLD_SIZE / GRASS_CHUNKS
+	var half := WORLD_SIZE * 0.5
+	for cj in GRASS_CHUNKS:
+		for ci in GRASS_CHUNKS:
+			var x0 := -half + ci * chunk_size
+			var z0 := -half + cj * chunk_size
+			var multimesh := MultiMesh.new()
+			multimesh.transform_format = MultiMesh.TRANSFORM_3D
+			multimesh.use_colors = false
+			multimesh.use_custom_data = true
+			multimesh.mesh = blade
+			multimesh.instance_count = per_chunk
+			var placed := 0
+			var guard := 0
+			while placed < per_chunk and guard < per_chunk * 20:
+				guard += 1
+				var x := rng.randf_range(x0 + 1.0, x0 + chunk_size - 1.0)
+				var z := rng.randf_range(z0 + 1.0, z0 + chunk_size - 1.0)
+				if get_ground_type(x, z) != GroundType.GRASS:
+					continue
+				var y := get_height(x, z)
+				if y < WATER_LEVEL + 0.05:
+					continue
+				var t := Transform3D(
+					Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * rng.randf_range(0.7, 1.4)),
+					Vector3(x, y, z)
+				)
+				multimesh.set_instance_transform(placed, t)
+				# Warna rumput NGIKUT warna tanah di bawahnya (minta Bagus):
+				# INSTANCE_CUSTOM.rgb = warna tanah titik itu, .a = variasi acak.
+				var gc := _ground_color(x, z)
+				multimesh.set_instance_custom_data(placed, Color(gc.r, gc.g, gc.b, rng.randf()))
+				placed += 1
+			multimesh.instance_count = placed
+			var mmi := MultiMeshInstance3D.new()
+			mmi.name = "Grass_%d_%d" % [ci, cj]
+			mmi.multimesh = multimesh
+			mmi.material_override = grass_material
+			# Rumput tidak melempar bayangan — bayangan tongkat yang panjang
+			# bikin helai kelihatan makin kaku, dan hemat GPU.
+			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(mmi)
+			_grass_chunks.append({
+				"node": mmi,
+				"center": Vector3(x0 + chunk_size * 0.5, 0.0, z0 + chunk_size * 0.5),
+			})
