@@ -82,6 +82,14 @@ func _build_world() -> void:
 	ground_shape.position = Vector3(0, -0.5, 0)
 	ground_body.add_child(ground_shape)
 
+	# Temporary residential staircase prop for the next level-design stage.
+	# Kept beside the spawn point so it is visible immediately in the test world.
+	var staircase_scene: PackedScene = preload("res://scenes/props/modular_house_staircase.tscn")
+	var staircase := staircase_scene.instantiate() as Node3D
+	staircase.name = "HouseStaircase_Test"
+	staircase.position = Vector3(2.0, 0.0, -0.5)
+	add_child(staircase)
+
 
 func _build_humanoid() -> void:
 	humanoid = ProceduralHumanoid.new()
@@ -159,7 +167,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion and _orbit_mouse:
 		var motion := event as InputEventMouseMotion
 		cam_yaw -= motion.relative.x * 0.005
-		cam_pitch = clampf(cam_pitch - motion.relative.y * 0.005, 0.05, 1.0)
+		cam_pitch = clampf(cam_pitch - motion.relative.y * 0.005, 0.05, 1.48)
 	elif event is InputEventScreenTouch:
 		var touch := event as InputEventScreenTouch
 		if touch.pressed and _orbit_touch == -1:
@@ -172,7 +180,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		var d: Vector2 = drag.position - _orbit_last
 		_orbit_last = drag.position
 		cam_yaw -= d.x * 0.006
-		cam_pitch = clampf(cam_pitch - d.y * 0.006, 0.05, 1.0)
+		cam_pitch = clampf(cam_pitch - d.y * 0.006, 0.05, 1.48)
 
 
 func _process(delta: float) -> void:
@@ -203,7 +211,12 @@ func _process(delta: float) -> void:
 
 	# Third-person camera: orbit on a sphere around the humanoid and
 	# look_at() its chest, so it stays centred and upright.
-	var target := humanoid.global_position + Vector3(0, 1.2, 0)
+	# As the camera rises toward a top-down angle, lower its look target
+	# toward the feet. This keeps the whole character framed like a standard
+	# third-person game instead of aiming at the chest and cropping the legs.
+	var overhead_blend := clampf(inverse_lerp(0.65, 1.48, cam_pitch), 0.0, 1.0)
+	var target_height := lerpf(1.2, 0.22, overhead_blend)
+	var target := humanoid.global_position + Vector3(0, target_height, 0)
 	var offset := Vector3(sin(cam_yaw) * cos(cam_pitch), sin(cam_pitch), cos(cam_yaw) * cos(cam_pitch)) * CAM_DISTANCE
 	camera.global_position = target + offset
 	camera.look_at(target, Vector3.UP)

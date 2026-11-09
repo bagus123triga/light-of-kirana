@@ -641,7 +641,9 @@ func _physics_process(delta: float) -> void:
 				# Wingsuit / skydiving silhouette: legs trail slightly apart
 				# with a soft knee bend, rather than hanging as a rigid pair.
 				# Belly-down glide: legs trail behind the pelvis with a relaxed knee bend.
-				airborne_target = hip_global + Vector3(0, -0.22, 0) - forward * 0.58 + right * jump_side * 0.14
+				# Lift the legs behind the pelvis; the torso pitch makes the head
+				# dip below the hips for a proper belly-down dive silhouette.
+				airborne_target = hip_global + Vector3(0, 0.18, 0) - forward * 0.58 + right * jump_side * 0.14
 				foot_stepping[i] = false
 				foot_step_t[i] = 0.0
 				foot_planted_pos[i] = airborne_target
@@ -721,7 +723,7 @@ func _physics_process(delta: float) -> void:
 	var is_gliding_fall := not on_floor_now and jump_state != 2
 	# Rotate the torso/head forward into a prone, belly-down wingsuit pose.
 	# Blend into/out of the pose so stepping off an edge does not snap.
-	var body_pitch_target := 1.28 if is_gliding_fall else speed_factor * forward_lean
+	var body_pitch_target := 1.72 if is_gliding_fall else speed_factor * forward_lean
 	body_root.rotation.x = lerp_angle(body_root.rotation.x, body_pitch_target, clampf(delta * 4.5, 0.0, 1.0))
 	body_root.rotation.z = sin(time_alive * 2.2) * 0.035 if is_gliding_fall else sin(gait_phase) * 0.02 * speed_factor
 	hip_global = body_root.global_position
