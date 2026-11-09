@@ -63,6 +63,13 @@ var is_on_stairs := false
 var stair_up_direction := Vector3.UP
 var stair_next_foot := 0
 var stair_step_distance := 0.28
+# Explicit traversal states: normal -> enter/alignment -> ascend/descend -> exit.
+const STAIR_NORMAL := 0
+const STAIR_ASCEND := 1
+const STAIR_DESCEND := 2
+const STAIR_EXIT := 3
+var stair_traversal_state := STAIR_NORMAL
+var stair_alignment := 0.0
 var want_jump := false
 var test_mode := false
 
@@ -397,9 +404,29 @@ func _physics_process(delta: float) -> void:
 	time_alive += delta
 	var stair_axis := Vector3(stair_up_direction.x, 0.0, stair_up_direction.z).normalized()
 	var stair_input_amount := wish_dir.dot(stair_axis)
-	var stair_gait_active := is_on_stairs and is_on_floor() and jump_state == 0 and absf(stair_input_amount) > 0.15
+	var stair_lateral_input := wish_dir - stair_axis * stair_input_amount
+	var stair_requested := is_on_stairs and is_on_floor() and jump_state == 0 and absf(stair_input_amount) > 0.20 and stair_lateral_input.length() < maxf(0.35, absf(stair_input_amount) * 0.75)
+	if stair_requested:
+		stair_traversal_state = STAIR_ASCEND if stair_input_amount > 0.0 else STAIR_DESCEND
+		stair_alignment = move_toward(stair_alignment, 1.0, delta / 0.18)
+	elif stair_alignment > 0.0:
+		stair_traversal_state = STAIR_EXIT
+		stair_alignment = move_toward(stair_alignment, 0.0, delta / 0.20)
+		if stair_alignment <= 0.001:
+			stair_alignment = 0.0
+			stair_traversal_state = STAIR_NORMAL
+	else:
+		stair_traversal_state = STAIR_NORMAL
+	var stair_gait_active := (stair_traversal_state == STAIR_ASCEND or stair_traversal_state == STAIR_DESCEND) and is_on_floor() and jump_state == 0
+	# GTA-style assisted traversal: gently guide the root along the stair axis
+	# while the player keeps pressing uphill/downhill. Lateral input cancels
+	# assistance; it never locks the player onto the staircase.
+	var stair_wish_dir := wish_dir
+	if stair_alignment > 0.0 and absf(stair_input_amount) > 0.001:
+		var guided_direction := stair_axis * signf(stair_input_amount)
+		stair_wish_dir = wish_dir.lerp(guided_direction * wish_dir.length(), stair_alignment)
 	var speed_max := 0.68 if stair_gait_active else (RUN_SPEED if is_running else WALK_SPEED)
-	var speed_factor := clampf(wish_dir.length(), 0.0, 1.0)
+	var speed_factor := clampf(stair_wish_dir.length(), 0.0, 1.0)
 	var speed := speed_max * speed_factor
 	# Smooth the speed toward its target (accelerate 6 m/s^2, brake
 	# 8 m/s^2): movement, stride and swing all use the smoothed
@@ -514,7 +541,7 @@ func _physics_process(delta: float) -> void:
 	# Gravity (CharacterBody3D). Smooth horizontal velocity in both
 	# directions. A scalar speed_smooth alone is insufficient: multiplying
 	# it by wish_dir still makes turning and releasing input instantaneous.
-	var target_horizontal := wish_dir * speed * speed_mult
+	var target_horizontal := stair_wish_dir * speed * speed_mult
 	var horizontal_accel := 12.0 if target_horizontal.length() > horizontal_motion.length() else 16.0
 	horizontal_motion = horizontal_motion.move_toward(target_horizontal, horizontal_accel * delta)
 	if test_mode:
