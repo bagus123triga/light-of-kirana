@@ -15,8 +15,8 @@ var jump_button: KiranaTouchButton
 # Positive = camera above, looking down at the humanoid in the centre.
 var cam_yaw := 0.0
 var cam_pitch := 0.35
-const CAMERA_MIN_PITCH := -0.35
-const CAMERA_MAX_PITCH := 1.54
+const CAMERA_MIN_PITCH := 0.08
+const CAMERA_MAX_PITCH := 1.28
 const CAM_DISTANCE := 4.2
 var run_held := false
 var _orbit_touch := -1
@@ -164,16 +164,29 @@ func _build_ui() -> void:
 	layer.add_child(jump_button)
 
 
+func _is_over_camera_blocker(screen_pos: Vector2) -> bool:
+	# Camera orbit must never capture touches that begin on the movement
+	# joystick or action buttons. _input runs BEFORE Control._gui_input,
+	# so without this explicit hit-test the same finger drives both.
+	for control in [joystick, run_button, jump_button]:
+		if control != null and control.is_visible_in_tree() and control.get_global_rect().has_point(screen_pos):
+			return true
+	return false
+
+
 func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
-		_orbit_mouse = event.pressed
+		if event.pressed:
+			_orbit_mouse = not _is_over_camera_blocker(event.position)
+		else:
+			_orbit_mouse = false
 	elif event is InputEventMouseMotion and _orbit_mouse:
 		var motion := event as InputEventMouseMotion
 		cam_yaw -= motion.relative.x * 0.005
 		cam_pitch = clampf(cam_pitch - motion.relative.y * 0.005, CAMERA_MIN_PITCH, CAMERA_MAX_PITCH)
 	elif event is InputEventScreenTouch:
 		var touch := event as InputEventScreenTouch
-		if touch.pressed and _orbit_touch == -1:
+		if touch.pressed and _orbit_touch == -1 and not _is_over_camera_blocker(touch.position):
 			_orbit_touch = touch.index
 			_orbit_last = touch.position
 		elif not touch.pressed and touch.index == _orbit_touch:
@@ -217,9 +230,13 @@ func _process(delta: float) -> void:
 	# As the camera rises toward a top-down angle, lower its look target
 	# toward the feet. This keeps the whole character framed like a standard
 	# third-person game instead of aiming at the chest and cropping the legs.
+	# Keep the camera above the ground plane. At steep angles move the
+	# framing target toward the feet, not the camera through/below the floor.
 	var overhead_blend := clampf(inverse_lerp(0.65, CAMERA_MAX_PITCH, cam_pitch), 0.0, 1.0)
-	var target_height := lerpf(1.2, 0.22, overhead_blend)
+	var target_height := lerpf(1.15, 0.35, overhead_blend)
 	var target := humanoid.global_position + Vector3(0, target_height, 0)
-	var offset := Vector3(sin(cam_yaw) * cos(cam_pitch), sin(cam_pitch), cos(cam_yaw) * cos(cam_pitch)) * CAM_DISTANCE
+	var horizontal_distance := CAM_DISTANCE * cos(cam_pitch)
+	var camera_height := CAM_DISTANCE * sin(cam_pitch)
+	var offset := Vector3(sin(cam_yaw) * horizontal_distance, camera_height, cos(cam_yaw) * horizontal_distance)
 	camera.global_position = target + offset
 	camera.look_at(target, Vector3.UP)
