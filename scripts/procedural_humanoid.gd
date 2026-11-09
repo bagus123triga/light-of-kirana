@@ -17,8 +17,12 @@ class_name ProceduralHumanoid
 ## Idle is NOT a limp ragdoll: the spring holds the body upright and only
 ## breathing sway is added (powered ragdoll, like Zelda / Genshin idle).
 
-const WALK_SPEED := 1.75
-const RUN_SPEED := 4.4
+# Speeds are REAL human speeds (Bagus, 2026-11-09: walk and run felt
+# too fast). Singer's panel says walk 1.75 / run 4.4, but Bagus's
+# order overrides the panel: a real walk is ~1.4 m/s (5 km/h) and a
+# real run ~3.2 m/s, not a sprint.
+const WALK_SPEED := 1.4
+const RUN_SPEED := 3.2
 const SWING_TIME := 0.38
 const HIP_STIFFNESS := 260.0
 const HIP_DAMPING := 26.0
@@ -280,20 +284,32 @@ func _physics_process(delta: float) -> void:
 			if not test_mode:
 				velocity.y = 6.5
 	elif jump_state == 2:
-		if not test_mode and is_on_floor() and velocity.y < 0.0:
+		# ROOT CAUSE (screenshot 2026-11-09 21:43, reproduced headless):
+		# the old check also required velocity.y < 0.0 — but
+		# move_and_slide() ZEROES the downward velocity the moment
+		# the body touches the floor, so by the next frame velocity.y
+		# is 0 and the landing was NEVER detected. jump_state stayed
+		# 2 forever: steps stayed gated, feet froze where the tuck
+		# left them, the body ran away from its own feet (10 m in
+		# the repro), the hip ceiling collapsed to 0.60 — the sitting
+		# pose with legs stretched forward. is_on_floor() alone is
+		# the landing signal; the launch frame is safe because the
+		# if/elif chain skips this branch on the frame state becomes 2.
+		if not test_mode and is_on_floor():
 			jump_state = 3
 			jump_timer = 0.18
-			# Plant both feet on the ground directly under the body.
-			# The airborne tuck leaves them under the hip in the air;
-			# without this they stay floating and the next step
-			# starts from mid-air.
+			# Plant both feet on the ground under the body, LEADING
+			# slightly in the direction of travel (wish_dir * 0.25):
+			# the body keeps moving through the 0.18 s landing
+			# absorption, so feet planted exactly under it are
+			# already trailing by the time the next step starts.
 			var fwd0 := Vector3(sin(facing_yaw), 0, cos(facing_yaw))
 			var rgt0 := Vector3(cos(facing_yaw), 0, -sin(facing_yaw))
 			for i in 2:
 				var side0 := -1.0 if i == 0 else 1.0
 				foot_stepping[i] = false
 				foot_step_t[i] = 0.0
-				foot_planted_pos[i] = global_position + rgt0 * side0 * STEP_LATERAL + fwd0 * 0.05
+				foot_planted_pos[i] = global_position + wish_dir * 0.25 + rgt0 * side0 * STEP_LATERAL + fwd0 * 0.05
 				foot_planted_pos[i].y = 0.05
 				foot_target_pos[i] = foot_planted_pos[i]
 				foot_from_pos[i] = foot_planted_pos[i]
@@ -304,9 +320,16 @@ func _physics_process(delta: float) -> void:
 	var crouch_target := 0.22 if jump_state == 1 else (0.18 if jump_state == 3 else 0.0)
 	jump_crouch = move_toward(jump_crouch, crouch_target, delta * (2.0 if jump_state == 1 else 1.2))
 
+	# Brake while pressing down and while absorbing the landing: the
+	# feet are planted (crouch) or just re-planted (landing), so the
+	# body must not run away from them at full speed — that is what
+	# left the feet metres behind and collapsed the hip after a
+	# running jump. Half speed for those 0.34 s, full speed otherwise.
+	var speed_mult := 0.5 if jump_state == 1 or jump_state == 3 else 1.0
+
 	# Gravity (CharacterBody3D). In test_mode, integrate by hand.
 	if test_mode:
-		position += wish_dir * speed * delta
+		position += wish_dir * speed * speed_mult * delta
 	else:
 		if is_on_floor():
 			# Launch frame: keep the impulse, don't overwrite it with
@@ -315,8 +338,8 @@ func _physics_process(delta: float) -> void:
 				velocity.y = -0.5
 		else:
 			velocity.y -= GRAVITY * delta
-		velocity.x = wish_dir.x * speed
-		velocity.z = wish_dir.z * speed
+		velocity.x = wish_dir.x * speed * speed_mult
+		velocity.z = wish_dir.z * speed * speed_mult
 		move_and_slide()
 
 	var on_floor_now := test_mode or is_on_floor()
@@ -334,8 +357,8 @@ func _physics_process(delta: float) -> void:
 	# 5+ steps/s cadence, which is why the arms flailed and the legs
 	# looked like hopping. Longer stride + flight = ~2.7 steps/s,
 	# a real run cadence.
-	var stride_max := 0.45 if not is_running else 1.1
-	var stride := clampf(speed * 0.26, 0.18, stride_max)
+	var stride_max := 0.45 if not is_running else 1.0
+	var stride := clampf(speed * 0.32, 0.18, stride_max)
 	var swing := clampf(stride / maxf(speed, 0.5), 0.16, SWING_TIME) if moving else SWING_TIME
 	# Run flight phase (Singer): after a step lands while running, the
 	# body is briefly airborne with BOTH feet tucked — that is what
@@ -366,7 +389,7 @@ func _physics_process(delta: float) -> void:
 				steps_taken += 1
 				if is_running and speed_factor > 0.6:
 					flight_timer = 0.12
-		elif on_floor_now and flight_timer <= 0.0 and jump_state == 0:
+		elif on_floor_now and flight_timer <= 0.0 and (jump_state == 0 or jump_state == 3):
 			var ideal := global_position + wish_dir * stride * LAND_BIAS + right * side * STEP_LATERAL + forward * 0.05
 			ideal.y = 0.05
 			var lag := (ideal - foot_planted_pos[i]).dot(forward) if moving else (ideal - foot_planted_pos[i]).length()

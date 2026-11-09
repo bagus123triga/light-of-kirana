@@ -196,6 +196,52 @@ func _init() -> void:
 		failures.append("humanoid still airborne after landing + 30 frames (y=%.2f)" % hum3.position.y)
 	print("JUMP_QUEUE_TEST mid_air_pressed=%s second_jump=%s final_y=%.2f" % [mid_air_pressed, second_jump_started, hum3.position.y])
 
+	# 7. Run + jump recovery (regression for screenshot 2026-11-09
+	#    21:43: after a RUNNING jump the humanoid ended sitting with
+	#    legs stretched forward and could not recover). One humanoid
+	#    at a time: free the main scene first, then a minimal arena
+	#    (ground + humanoid, no main.gd to overwrite wish_dir).
+	root.remove_child(main_inst)
+	main_inst.queue_free()
+	await physics_frame
+	await physics_frame
+	var arena := Node3D.new()
+	root.add_child(arena)
+	var gbody := StaticBody3D.new()
+	arena.add_child(gbody)
+	var gshape := CollisionShape3D.new()
+	var gbox := BoxShape3D.new()
+	gbox.size = Vector3(100, 1, 100)
+	gshape.shape = gbox
+	gshape.position = Vector3(0, -0.5, 0)
+	gbody.add_child(gshape)
+	var hum4 := ProceduralHumanoid.new()
+	arena.add_child(hum4)
+	await process_frame
+	for i in 30:
+		await physics_frame
+	hum4.wish_dir = Vector3(0, 0, -1)
+	hum4.is_running = true
+	for i in 60:
+		await physics_frame
+	hum4.want_jump = true
+	var min_hip_after := 10.0
+	var max_foot_horiz := 0.0
+	for i in 180:
+		await physics_frame
+		if i > 60:
+			min_hip_after = minf(min_hip_after, hum4.hip_y)
+			for f in 2:
+				var d := Vector2(hum4.foot_planted_pos[f].x - hum4.global_position.x, hum4.foot_planted_pos[f].z - hum4.global_position.z).length()
+				max_foot_horiz = maxf(max_foot_horiz, d)
+	if hum4.position.y > 0.05:
+		failures.append("run+jump: still airborne after 3 s (y=%.2f)" % hum4.position.y)
+	if min_hip_after < 0.8:
+		failures.append("run+jump: hip never recovered, min hip_y=%.2f (sitting)" % min_hip_after)
+	if max_foot_horiz > 0.85:
+		failures.append("run+jump: foot stayed %.2f m from body (legs stretched)" % max_foot_horiz)
+	print("RUNJUMP_TEST y=%.2f min_hip_after=%.2f max_foot_horiz=%.2f" % [hum4.position.y, min_hip_after, max_foot_horiz])
+
 	print("WALK_TEST hip_y=%.2f steps=%d walked=%.2f m ran=%.2f m planted_err=%.3f" % [final_hip_y, final_steps, moved, run_moved, max_planted_err])
 	if failures.is_empty():
 		print("WALK_TEST PASS")
