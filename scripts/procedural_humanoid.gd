@@ -326,6 +326,33 @@ func _foot_ground_y(point: Vector3) -> float:
 	return float(hit.position.y) + 0.05 if not hit.is_empty() else global_position.y + 0.05
 
 
+# Two-point foot alignment adapted from the referenced Godot Foot IK demo.
+# Sampling heel and toe separately lets the procedural foot follow a tread
+# plane instead of only matching the ankle's centre height.
+func _foot_surface_alignment(point: Vector3, foot_forward: Vector3) -> Vector2:
+	var forward_axis := Vector3(foot_forward.x, 0.0, foot_forward.z).normalized()
+	if forward_axis.length() < 0.001:
+		forward_axis = Vector3.FORWARD
+	var half_length := 0.075
+	var heel_point := point - forward_axis * half_length
+	var toe_point := point + forward_axis * half_length
+	var heel_query := PhysicsRayQueryParameters3D.create(heel_point + Vector3.UP * 2.0, heel_point + Vector3.DOWN * 3.0)
+	var toe_query := PhysicsRayQueryParameters3D.create(toe_point + Vector3.UP * 2.0, toe_point + Vector3.DOWN * 3.0)
+	heel_query.exclude = [get_rid()]
+	toe_query.exclude = [get_rid()]
+	heel_query.collision_mask = 1
+	toe_query.collision_mask = 1
+	var space := get_world_3d().direct_space_state
+	var heel_hit := space.intersect_ray(heel_query)
+	var toe_hit := space.intersect_ray(toe_query)
+	if heel_hit.is_empty() and toe_hit.is_empty():
+		return Vector2(point.y, 0.0)
+	var heel_y := float(heel_hit.position.y) if not heel_hit.is_empty() else float(toe_hit.position.y)
+	var toe_y := float(toe_hit.position.y) if not toe_hit.is_empty() else float(heel_hit.position.y)
+	var surface_pitch := atan2(toe_y - heel_y, half_length * 2.0)
+	return Vector2((heel_y + toe_y) * 0.5 + 0.05, clampf(surface_pitch, -0.45, 0.45))
+
+
 func _start_recovery_step(i: int, right: Vector3, forward: Vector3) -> void:
 	var side := -1.0 if i == 0 else 1.0
 	foot_from_pos[i] = foot_planted_pos[i]
@@ -898,9 +925,19 @@ func _physics_process(delta: float) -> void:
 		var yaw_diff := clampf(wrapf(want_yaw - facing_yaw, -PI, PI), deg_to_rad(-45.0), deg_to_rad(45.0))
 		foot_yaw[i] = lerp_angle(foot_yaw[i], facing_yaw + yaw_diff, clampf(delta * 10.0, 0.0, 1.0))
 		var foot_pitch := 0.0
-		if foot_stepping[i]:
-			foot_pitch = sin(PI * clampf(foot_step_t[i], 0.0, 1.0)) * 0.35
 		var foot_fwd := Vector3(sin(foot_yaw[i]), 0, cos(foot_yaw[i]))
+		if is_on_stairs and on_floor_now and jump_state == 0:
+			var surface_alignment := _foot_surface_alignment(ankle, foot_fwd)
+			if not foot_stepping[i]:
+				# Keep the planted ankle on the average heel/toe contact height.
+				ankle.y = surface_alignment.x
+				foot_planted_pos[i].y = ankle.y
+			# During swing preserve the animated toe lift; once planted,
+			# rotate the sole to match the tread plane like the reference demo.
+			if not foot_stepping[i]:
+				foot_pitch = -surface_alignment.y
+		if foot_stepping[i]:
+			foot_pitch += sin(PI * clampf(foot_step_t[i], 0.0, 1.0)) * 0.35
 		var foot_pos := ankle + foot_fwd * 0.07
 		foot_pos.y = ankle.y
 		foot_mesh[i].global_transform = Transform3D(Basis.from_euler(Vector3(foot_pitch, foot_yaw[i], 0.0)), foot_pos)
