@@ -398,9 +398,10 @@ func _resolve_foot_collision(right: Vector3, forward: Vector3) -> void:
 
 
 func _try_step_up(horizontal_delta: Vector3) -> bool:
-	# The stair Area supplies the actual uphill direction. Probe one capsule
-	# radius ahead of the character so we see the NEXT tread, not the tread
-	# currently underneath the character's centre.
+	# Probe just beyond the character's centre, not one full capsule radius
+	# ahead. With the first tread starting at the stair front edge, a 0.30 m
+	# probe skipped the first tread and hit the SECOND one (0.36 m high),
+	# exceeding MAX_STAIR_STEP_UP and rejecting the climb entirely.
 	if not is_on_stairs or not is_on_floor() or jump_state != 0 or horizontal_delta.length() < 0.0001:
 		return false
 	var stair_forward := Vector3(stair_up_direction.x, 0.0, stair_up_direction.z)
@@ -410,19 +411,17 @@ func _try_step_up(horizontal_delta: Vector3) -> bool:
 	if horizontal_delta.normalized().dot(stair_forward) < 0.35 or wish_dir.dot(stair_forward) < 0.15:
 		return false
 
-	var probe := global_position + horizontal_delta + stair_forward * 0.30
+	# Sample the tread immediately ahead. This advances from one discrete
+	# riser to the next instead of looking several steps up the staircase.
+	var probe := global_position + horizontal_delta + stair_forward * 0.08
 	var surface_y := _foot_ground_y(probe) - 0.05
 	var rise := surface_y - global_position.y
-	# A real stair riser is one discrete rise. Never auto-lift for a drop,
-	# a landing, or a platform higher than the step-up limit.
 	if rise <= 0.025 or rise > MAX_STAIR_STEP_UP:
 		return false
 
-	# The previous implementation tried test_move() upward while the capsule
-	# was already beside/overlapping the vertical riser. That probe hit the
-	# riser itself and rejected every climb. The tread ray has already
-	# identified the exact next step; raise by that rise, then let the normal
-	# CharacterBody solver resolve horizontal contact and floor state.
+	# Lift exactly one riser; move_and_slide() then resolves the horizontal
+	# motion onto that tread. The ray is deliberately close enough to avoid
+	# selecting a later, unreachable tread.
 	global_position.y += rise
 	velocity.y = 0.0
 	return true
