@@ -58,6 +58,11 @@ func _rebuild() -> void:
 		# this riser's top, creating a true staircase profile.
 		var step_body := StaticBody3D.new()
 		step_body.name = "Step_%02d" % (i + 1)
+		# Step blocks are visual/foot-placement surfaces only. The player
+		# rides the continuous ramp collision built below, so the capsule
+		# never catches on vertical risers. Layer 2 remains raycast-visible.
+		step_body.collision_layer = 2
+		step_body.collision_mask = 0
 		step_body.position = Vector3(0.0, height * 0.5, -(float(i) + 0.5) * tread_depth)
 		add_child(step_body)
 
@@ -78,7 +83,49 @@ func _rebuild() -> void:
 		_build_handrail(-1.0, material)
 		_build_handrail(1.0, material)
 
+	_build_walkable_ramp()
 	_setup_stair_trigger()
+
+
+func _build_walkable_ramp() -> void:
+	# A continuous collision surface follows the centre of every tread.
+	# This preserves the visible stepped geometry while giving CharacterBody3D
+	# a walkable slope (both up and down) instead of a wall at every riser.
+	# The slope is below floor_max_angle for both configured stair variants.
+	var total_height := float(step_count) * riser_height
+	var total_depth := float(step_count) * tread_depth
+	var profile: Array[Vector3] = [Vector3(0.0, 0.0, tread_depth * 0.5)]
+	for i in range(step_count):
+		profile.append(Vector3(0.0, float(i + 1) * riser_height, -(float(i) + 0.5) * tread_depth))
+	profile.append(Vector3(0.0, total_height, -total_depth))
+
+	var faces := PackedVector3Array()
+	var half_width := stair_width * 0.5
+	for i in range(profile.size() - 1):
+		var a := profile[i]
+		var b := profile[i + 1]
+		var a_left := a + Vector3(-half_width, 0.0, 0.0)
+		var a_right := a + Vector3(half_width, 0.0, 0.0)
+		var b_left := b + Vector3(-half_width, 0.0, 0.0)
+		var b_right := b + Vector3(half_width, 0.0, 0.0)
+		faces.append(a_left)
+		faces.append(a_right)
+		faces.append(b_right)
+		faces.append(a_left)
+		faces.append(b_right)
+		faces.append(b_left)
+
+	var ramp_shape := ConcavePolygonShape3D.new()
+	ramp_shape.set_faces(faces)
+	var ramp_body := StaticBody3D.new()
+	ramp_body.name = "WalkableRamp"
+	ramp_body.collision_layer = 1
+	ramp_body.collision_mask = 1
+	var ramp_collision := CollisionShape3D.new()
+	ramp_collision.shape = ramp_shape
+	ramp_body.add_child(ramp_collision)
+	add_child(ramp_body)
+
 
 func _setup_stair_trigger() -> void:
 	var total_height := float(step_count) * riser_height

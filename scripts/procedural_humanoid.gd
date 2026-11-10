@@ -321,7 +321,7 @@ func set_stair_state(active: bool, up_direction: Vector3 = Vector3.UP, step_dept
 func _foot_ground_y(point: Vector3) -> float:
 	var query := PhysicsRayQueryParameters3D.create(point + Vector3.UP * 2.0, point + Vector3.DOWN * 3.0)
 	query.exclude = [get_rid()]
-	query.collision_mask = 1
+	query.collision_mask = 3
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 	return float(hit.position.y) + 0.05 if not hit.is_empty() else global_position.y + 0.05
 
@@ -340,8 +340,8 @@ func _foot_surface_alignment(point: Vector3, foot_forward: Vector3) -> Vector2:
 	var toe_query := PhysicsRayQueryParameters3D.create(toe_point + Vector3.UP * 2.0, toe_point + Vector3.DOWN * 3.0)
 	heel_query.exclude = [get_rid()]
 	toe_query.exclude = [get_rid()]
-	heel_query.collision_mask = 1
-	toe_query.collision_mask = 1
+	heel_query.collision_mask = 3
+	toe_query.collision_mask = 3
 	var space := get_world_3d().direct_space_state
 	var heel_hit := space.intersect_ray(heel_query)
 	var toe_hit := space.intersect_ray(toe_query)
@@ -582,7 +582,6 @@ func _physics_process(delta: float) -> void:
 			velocity.y -= GRAVITY * delta
 		velocity.x = horizontal_motion.x
 		velocity.z = horizontal_motion.z
-		_try_step_up(Vector3(horizontal_motion.x, 0.0, horizontal_motion.z) * delta)
 		move_and_slide()
 
 	# Drive gait timing from actual smoothed horizontal movement, not
