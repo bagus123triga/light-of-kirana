@@ -398,10 +398,11 @@ func _resolve_foot_collision(right: Vector3, forward: Vector3) -> void:
 
 
 func _try_step_up(horizontal_delta: Vector3) -> bool:
-	# Probe just beyond the character's centre, not one full capsule radius
-	# ahead. With the first tread starting at the stair front edge, a 0.30 m
-	# probe skipped the first tread and hit the SECOND one (0.36 m high),
-	# exceeding MAX_STAIR_STEP_UP and rejecting the climb entirely.
+	# The capsule stops with its centre roughly one radius BEFORE the
+	# vertical riser. Probe beyond that collision boundary so the ray lands
+	# on the next tread. The staircase's first tread begins at local z=0;
+	# with a 0.28 m capsule radius, an 0.08 m probe still hits the floor,
+	# while ~0.31 m reaches the first tread.
 	if not is_on_stairs or not is_on_floor() or jump_state != 0 or horizontal_delta.length() < 0.0001:
 		return false
 	var stair_forward := Vector3(stair_up_direction.x, 0.0, stair_up_direction.z)
@@ -411,17 +412,16 @@ func _try_step_up(horizontal_delta: Vector3) -> bool:
 	if horizontal_delta.normalized().dot(stair_forward) < 0.35 or wish_dir.dot(stair_forward) < 0.15:
 		return false
 
-	# Sample the tread immediately ahead. This advances from one discrete
-	# riser to the next instead of looking several steps up the staircase.
-	var probe := global_position + horizontal_delta + stair_forward * 0.08
+	# Probe one capsule radius plus a small margin ahead. Since every tread
+	# is a separate solid block, this ray selects the exact next step top.
+	var probe := global_position + horizontal_delta + stair_forward * 0.31
 	var surface_y := _foot_ground_y(probe) - 0.05
 	var rise := surface_y - global_position.y
 	if rise <= 0.025 or rise > MAX_STAIR_STEP_UP:
 		return false
 
-	# Lift exactly one riser; move_and_slide() then resolves the horizontal
-	# motion onto that tread. The ray is deliberately close enough to avoid
-	# selecting a later, unreachable tread.
+	# Raise by no more than one configured riser. The next move_and_slide()
+	# resolves the capsule over the riser and onto the sampled tread.
 	global_position.y += rise
 	velocity.y = 0.0
 	return true
