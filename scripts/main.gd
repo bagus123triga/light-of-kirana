@@ -84,26 +84,6 @@ func _build_world() -> void:
 	ground_shape.position = Vector3(0, -0.5, 0)
 	ground_body.add_child(ground_shape)
 
-	# Temporary residential staircase prop for the next level-design stage.
-	# Kept beside the spawn point so it is visible immediately in the test world.
-	var staircase_scene: PackedScene = preload("res://scenes/props/modular_house_staircase.tscn")
-	var staircase := staircase_scene.instantiate() as Node3D
-	staircase.name = "HouseStaircase_Test"
-	staircase.rotation.y = 0.0
-	staircase.position = Vector3(0.0, 0.0, -3.2)
-	add_child(staircase)
-
-	# A second, taller residential staircase for testing longer climbs.
-	var tall_staircase := staircase_scene.instantiate() as Node3D
-	tall_staircase.name = "HouseStaircase_Tall_Test"
-	tall_staircase.step_count = 18
-	tall_staircase.riser_height = 0.22
-	tall_staircase.tread_depth = 0.30
-	tall_staircase.stair_width = 1.5
-	tall_staircase.rotation.y = 0.0
-	tall_staircase.position = Vector3(4.5, 0.0, -3.2)
-	add_child(tall_staircase)
-
 
 func _build_humanoid() -> void:
 	humanoid = ProceduralHumanoid.new()
@@ -225,12 +205,8 @@ func _process(delta: float) -> void:
 	if move2d.length() > 1.0:
 		move2d = move2d.normalized()
 
-	if humanoid.is_on_stairs:
-		run_held = false
-		run_button.visible = false
-	else:
-		run_button.visible = true
-	var running := (run_held or Input.is_key_pressed(KEY_SHIFT)) and not humanoid.is_on_stairs
+	run_button.visible = true
+	var running := run_held or Input.is_key_pressed(KEY_SHIFT)
 	if Input.is_key_pressed(KEY_SPACE):
 		humanoid.want_jump = true
 
