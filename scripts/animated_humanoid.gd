@@ -6,10 +6,18 @@ extends CharacterBody3D
 
 const WALK_SPEED := 2.0
 const RUN_SPEED := 5.5
-const GRAVITY := 20.0
-const JUMP_VELOCITY := 6.5
-const ACCELERATION := 12.0
-const BRAKING := 16.0
+const GRAVITY := 22.0
+const JUMP_VELOCITY := 7.0
+
+# Ground movement has deliberate acceleration, strong stopping friction,
+# and a quicker response when the player reverses direction.
+const GROUND_ACCELERATION := 14.0
+const GROUND_FRICTION := 26.0
+const DIRECTION_CHANGE_ACCELERATION := 24.0
+
+# In the air, preserve momentum and allow only limited steering.
+const AIR_ACCELERATION := 3.5
+const AIR_DRAG := 0.7
 
 const IDLE := &"Idle_relaxed"
 const WALK := &"Walk_forwards"
@@ -78,8 +86,23 @@ func _physics_process(delta: float) -> void:
 	var desired_speed := RUN_SPEED if is_running else WALK_SPEED
 	var desired_horizontal := wish_dir * desired_speed
 	var horizontal := Vector3(velocity.x, 0.0, velocity.z)
-	var rate := ACCELERATION if desired_horizontal.length() > horizontal.length() else BRAKING
-	horizontal = horizontal.move_toward(desired_horizontal, rate * delta)
+	var has_move_input := wish_dir.length_squared() > 0.0025
+
+	if was_on_floor:
+		if has_move_input:
+			var reversing := horizontal.length_squared() > 0.04 and horizontal.normalized().dot(desired_horizontal.normalized()) < -0.15
+			var acceleration := DIRECTION_CHANGE_ACCELERATION if reversing else GROUND_ACCELERATION
+			horizontal = horizontal.move_toward(desired_horizontal, acceleration * delta)
+		else:
+			# Strong ground friction prevents skating after releasing the stick.
+			horizontal = horizontal.move_toward(Vector3.ZERO, GROUND_FRICTION * delta)
+	else:
+		if has_move_input:
+			horizontal = horizontal.move_toward(desired_horizontal, AIR_ACCELERATION * delta)
+		else:
+			# Keep most horizontal momentum while airborne.
+			horizontal = horizontal.move_toward(Vector3.ZERO, AIR_DRAG * delta)
+
 	velocity.x = horizontal.x
 	velocity.z = horizontal.z
 
@@ -118,11 +141,12 @@ func _update_locomotion_animation(horizontal_speed: float) -> void:
 	if horizontal_speed < 0.12:
 		_play_animation(IDLE, 1.0)
 	elif is_running and horizontal_speed >= 4.3:
-		_play_animation(SPRINT, clampf(horizontal_speed / 9.0, 0.5, 1.0))
+		_play_animation(SPRINT, clampf(horizontal_speed / RUN_SPEED, 0.75, 1.2))
 	elif is_running:
-		_play_animation(JOG, clampf(horizontal_speed / 6.0, 0.55, 1.15))
+		_play_animation(JOG, clampf(horizontal_speed / 3.8, 0.7, 1.2))
 	else:
-		_play_animation(WALK, clampf(horizontal_speed / 1.08, 0.65, 2.2))
+		# The walk cycle is authored for a pace close to WALK_SPEED.
+		_play_animation(WALK, clampf(horizontal_speed / WALK_SPEED, 0.75, 1.2))
 
 
 func _play_animation(animation_name: StringName, playback_rate: float = 1.0, blend: float = 0.18) -> void:
