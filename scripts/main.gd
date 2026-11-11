@@ -26,6 +26,7 @@ var _orbit_mouse := false
 
 func _ready() -> void:
 	_build_world()
+	_build_stairs()
 	_build_humanoid()
 	_build_camera()
 	_build_ui()
@@ -83,6 +84,67 @@ func _build_world() -> void:
 	ground_shape.shape = box
 	ground_shape.position = Vector3(0, -0.5, 0)
 	ground_body.add_child(ground_shape)
+
+
+func _build_stairs() -> void:
+	# Visible modular steps; the character collides with one hidden wedge
+	# underneath them, never with the individual stair risers.
+	var stairs := Node3D.new()
+	stairs.name = "Stairs"
+	stairs.position = Vector3(0, 0, -1.0)
+	add_child(stairs)
+
+	const STEP_COUNT := 8
+	const STEP_RISE := 0.18
+	const STEP_DEPTH := 0.28
+	const STAIR_WIDTH := 1.6
+	const STAIR_LENGTH := STEP_COUNT * STEP_DEPTH
+	const TOTAL_HEIGHT := STEP_COUNT * STEP_RISE
+
+	var stone := _grey_material(Color(0.38, 0.40, 0.43))
+	for i in STEP_COUNT:
+		var step := MeshInstance3D.new()
+		step.name = "Step_%02d" % (i + 1)
+		var mesh := BoxMesh.new()
+		mesh.size = Vector3(STAIR_WIDTH, STEP_RISE, STEP_DEPTH)
+		step.mesh = mesh
+		step.material_override = stone
+		step.position = Vector3(0, (float(i) + 0.5) * STEP_RISE, -(float(i) + 0.5) * STEP_DEPTH)
+		stairs.add_child(step)
+
+	# A single convex wedge provides a continuous walkable surface.
+	# Its slope is ~33 degrees, below the humanoid's 45-degree floor limit.
+	var ramp_body := StaticBody3D.new()
+	ramp_body.name = "InvisibleRamp"
+	ramp_body.collision_layer = 1
+	ramp_body.collision_mask = 0
+	stairs.add_child(ramp_body)
+
+	var ramp_shape := CollisionShape3D.new()
+	var wedge := ConvexPolygonShape3D.new()
+	wedge.points = PackedVector3Array([
+		Vector3(-STAIR_WIDTH * 0.5, 0.0, 0.0),
+		Vector3(STAIR_WIDTH * 0.5, 0.0, 0.0),
+		Vector3(-STAIR_WIDTH * 0.5, 0.0, -STAIR_LENGTH),
+		Vector3(STAIR_WIDTH * 0.5, 0.0, -STAIR_LENGTH),
+		Vector3(-STAIR_WIDTH * 0.5, TOTAL_HEIGHT, -STAIR_LENGTH),
+		Vector3(STAIR_WIDTH * 0.5, TOTAL_HEIGHT, -STAIR_LENGTH)
+	])
+	ramp_shape.shape = wedge
+	ramp_body.add_child(ramp_shape)
+
+	# Flat landing at the top so the player can leave the ramp smoothly.
+	var landing_body := StaticBody3D.new()
+	landing_body.name = "TopLanding"
+	landing_body.collision_layer = 1
+	landing_body.collision_mask = 0
+	landing_body.position = Vector3(0, TOTAL_HEIGHT - 0.05, -STAIR_LENGTH - 0.30)
+	stairs.add_child(landing_body)
+	var landing_shape := CollisionShape3D.new()
+	var landing_box := BoxShape3D.new()
+	landing_box.size = Vector3(STAIR_WIDTH, 0.1, 0.6)
+	landing_shape.shape = landing_box
+	landing_body.add_child(landing_shape)
 
 
 func _build_humanoid() -> void:
