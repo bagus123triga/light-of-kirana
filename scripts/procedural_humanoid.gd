@@ -53,23 +53,11 @@ const ARM_UPPER := 0.28
 const ARM_LOWER := 0.26
 const STEP_LATERAL := 0.11
 const GRAVITY := 20.0
-const MAX_STAIR_STEP_UP := 0.24
 
 # Set by main.gd every frame (keyboard, joystick, or test).
 var move_input := Vector2.ZERO
 var wish_dir := Vector3.ZERO
 var is_running := false
-var is_on_stairs := false
-var stair_up_direction := Vector3.UP
-var stair_next_foot := 0
-var stair_step_distance := 0.28
-# Explicit traversal states: normal -> enter/alignment -> ascend/descend -> exit.
-const STAIR_NORMAL := 0
-const STAIR_ASCEND := 1
-const STAIR_DESCEND := 2
-const STAIR_EXIT := 3
-var stair_traversal_state := STAIR_NORMAL
-var stair_alignment := 0.0
 var want_jump := false
 var test_mode := false
 
@@ -306,22 +294,10 @@ func _is_crossed(i: int, right: Vector3) -> bool:
 	var lateral := (foot_planted_pos[i] - global_position).dot(right)
 	return (i == 0 and lateral > -0.03) or (i == 1 and lateral < 0.03)
 
-func set_stair_state(active: bool, up_direction: Vector3 = Vector3.UP, step_depth: float = 0.28) -> void:
-	var was_on_stairs := is_on_stairs
-	is_on_stairs = active
-	if active and not was_on_stairs:
-		stair_next_foot = 0
-	if active and up_direction.length() > 0.01:
-		stair_up_direction = up_direction.normalized()
-		stair_step_distance = maxf(step_depth, 0.12)
-	if not active:
-		stair_next_foot = 0
-
-
 func _foot_ground_y(point: Vector3) -> float:
 	var query := PhysicsRayQueryParameters3D.create(point + Vector3.UP * 2.0, point + Vector3.DOWN * 3.0)
 	query.exclude = [get_rid()]
-	query.collision_mask = 3
+	query.collision_mask = 1
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 	return float(hit.position.y) + 0.05 if not hit.is_empty() else global_position.y + 0.05
 
@@ -329,30 +305,6 @@ func _foot_ground_y(point: Vector3) -> float:
 # Two-point foot alignment adapted from the referenced Godot Foot IK demo.
 # Sampling heel and toe separately lets the procedural foot follow a tread
 # plane instead of only matching the ankle's centre height.
-func _foot_surface_alignment(point: Vector3, foot_forward: Vector3) -> Vector2:
-	var forward_axis := Vector3(foot_forward.x, 0.0, foot_forward.z).normalized()
-	if forward_axis.length() < 0.001:
-		forward_axis = Vector3.FORWARD
-	var half_length := 0.075
-	var heel_point := point - forward_axis * half_length
-	var toe_point := point + forward_axis * half_length
-	var heel_query := PhysicsRayQueryParameters3D.create(heel_point + Vector3.UP * 2.0, heel_point + Vector3.DOWN * 3.0)
-	var toe_query := PhysicsRayQueryParameters3D.create(toe_point + Vector3.UP * 2.0, toe_point + Vector3.DOWN * 3.0)
-	heel_query.exclude = [get_rid()]
-	toe_query.exclude = [get_rid()]
-	heel_query.collision_mask = 3
-	toe_query.collision_mask = 3
-	var space := get_world_3d().direct_space_state
-	var heel_hit := space.intersect_ray(heel_query)
-	var toe_hit := space.intersect_ray(toe_query)
-	if heel_hit.is_empty() and toe_hit.is_empty():
-		return Vector2(point.y, 0.0)
-	var heel_y := float(heel_hit.position.y) if not heel_hit.is_empty() else float(toe_hit.position.y)
-	var toe_y := float(toe_hit.position.y) if not toe_hit.is_empty() else float(heel_hit.position.y)
-	var surface_pitch := atan2(toe_y - heel_y, half_length * 2.0)
-	return Vector2((heel_y + toe_y) * 0.5 + 0.05, clampf(surface_pitch, -0.45, 0.45))
-
-
 func _start_recovery_step(i: int, right: Vector3, forward: Vector3) -> void:
 	var side := -1.0 if i == 0 else 1.0
 	foot_from_pos[i] = foot_planted_pos[i]
@@ -397,62 +349,10 @@ func _resolve_foot_collision(right: Vector3, forward: Vector3) -> void:
 		foot_target_pos[mover] += right * side * 0.08
 
 
-func _try_step_up(horizontal_delta: Vector3) -> bool:
-	# The capsule stops with its centre roughly one radius BEFORE the
-	# vertical riser. Probe beyond that collision boundary so the ray lands
-	# on the next tread. The staircase's first tread begins at local z=0;
-	# with a 0.28 m capsule radius, an 0.08 m probe still hits the floor,
-	# while ~0.31 m reaches the first tread.
-	if not is_on_stairs or not is_on_floor() or jump_state != 0 or horizontal_delta.length() < 0.0001:
-		return false
-	var stair_forward := Vector3(stair_up_direction.x, 0.0, stair_up_direction.z)
-	if stair_forward.length() < 0.001:
-		return false
-	stair_forward = stair_forward.normalized()
-	if horizontal_delta.normalized().dot(stair_forward) < 0.35 or wish_dir.dot(stair_forward) < 0.15:
-		return false
-
-	# Probe one capsule radius plus a small margin ahead. Since every tread
-	# is a separate solid block, this ray selects the exact next step top.
-	var probe := global_position + horizontal_delta + stair_forward * 0.31
-	var surface_y := _foot_ground_y(probe) - 0.05
-	var rise := surface_y - global_position.y
-	if rise <= 0.025 or rise > MAX_STAIR_STEP_UP:
-		return false
-
-	# Raise by no more than one configured riser. The next move_and_slide()
-	# resolves the capsule over the riser and onto the sampled tread.
-	global_position.y += rise
-	velocity.y = 0.0
-	return true
-
 func _physics_process(delta: float) -> void:
 	time_alive += delta
-	var stair_axis := Vector3(stair_up_direction.x, 0.0, stair_up_direction.z).normalized()
-	var stair_input_amount := wish_dir.dot(stair_axis)
-	var stair_lateral_input := wish_dir - stair_axis * stair_input_amount
-	var stair_requested := is_on_stairs and is_on_floor() and jump_state == 0 and absf(stair_input_amount) > 0.20 and stair_lateral_input.length() < maxf(0.35, absf(stair_input_amount) * 0.75)
-	if stair_requested:
-		stair_traversal_state = STAIR_ASCEND if stair_input_amount > 0.0 else STAIR_DESCEND
-		stair_alignment = move_toward(stair_alignment, 1.0, delta / 0.18)
-	elif stair_alignment > 0.0:
-		stair_traversal_state = STAIR_EXIT
-		stair_alignment = move_toward(stair_alignment, 0.0, delta / 0.20)
-		if stair_alignment <= 0.001:
-			stair_alignment = 0.0
-			stair_traversal_state = STAIR_NORMAL
-	else:
-		stair_traversal_state = STAIR_NORMAL
-	var stair_gait_active := (stair_traversal_state == STAIR_ASCEND or stair_traversal_state == STAIR_DESCEND) and is_on_floor() and jump_state == 0
-	# GTA-style assisted traversal: gently guide the root along the stair axis
-	# while the player keeps pressing uphill/downhill. Lateral input cancels
-	# assistance; it never locks the player onto the staircase.
-	var stair_wish_dir := wish_dir
-	if stair_alignment > 0.0 and absf(stair_input_amount) > 0.001:
-		var guided_direction := stair_axis * signf(stair_input_amount)
-		stair_wish_dir = wish_dir.lerp(guided_direction * wish_dir.length(), stair_alignment)
-	var speed_max := 0.68 if stair_gait_active else (RUN_SPEED if is_running else WALK_SPEED)
-	var speed_factor := clampf(stair_wish_dir.length(), 0.0, 1.0)
+	var speed_max := RUN_SPEED if is_running else WALK_SPEED
+	var speed_factor := clampf(wish_dir.length(), 0.0, 1.0)
 	var speed := speed_max * speed_factor
 	# Smooth the speed toward its target (accelerate 6 m/s^2, brake
 	# 8 m/s^2): movement, stride and swing all use the smoothed
@@ -567,7 +467,7 @@ func _physics_process(delta: float) -> void:
 	# Gravity (CharacterBody3D). Smooth horizontal velocity in both
 	# directions. A scalar speed_smooth alone is insufficient: multiplying
 	# it by wish_dir still makes turning and releasing input instantaneous.
-	var target_horizontal := stair_wish_dir * speed * speed_mult
+	var target_horizontal := wish_dir * speed * speed_mult
 	var horizontal_accel := 12.0 if target_horizontal.length() > horizontal_motion.length() else 16.0
 	horizontal_motion = horizontal_motion.move_toward(target_horizontal, horizontal_accel * delta)
 	if test_mode:
@@ -608,10 +508,10 @@ func _physics_process(delta: float) -> void:
 	# the feet looked too fast even though the speed was right.
 	# The foot lands ~0.4 m AHEAD of the body, so the stride target
 	# must be far (body travel during the swing + 0.4 m ahead).
-	var stride_max := 0.32 if stair_gait_active else (0.45 if not is_running else RUN_STRIDE)
-	var stride_rate := 0.25 if stair_gait_active else (0.32 if not is_running else 0.58)
+	var stride_max := 0.45 if not is_running else RUN_STRIDE
+	var stride_rate := 0.32 if not is_running else 0.58
 	var stride := clampf(speed * stride_rate, 0.14, stride_max)
-	var swing := 0.36 if stair_gait_active else (RUN_SWING if is_running else (clampf(stride / maxf(speed, 0.5), 0.16, SWING_TIME) if moving else SWING_TIME))
+	var swing := RUN_SWING if is_running else (clampf(stride / maxf(speed, 0.5), 0.16, SWING_TIME) if moving else SWING_TIME)
 
 	# Push-off lift (run): flight_timer is now set when a foot TOES OFF
 	# (starts its swing) while the other foot is also in the air — the
@@ -640,16 +540,12 @@ func _physics_process(delta: float) -> void:
 			_start_recovery_step(i, right, forward)
 		if foot_stepping[i]:
 			foot_step_t[i] += delta / swing
-			# On ordinary ground, continuously predict touchdown. On stairs,
-			# keep the target LOCKED for the whole swing: chasing a moving
-			# target each physics frame makes the foot slide along the tread.
-			if not is_on_stairs:
-				var swing_remaining := swing * (1.0 - clampf(foot_step_t[i], 0.0, 1.0))
-				var swing_side := -1.0 if i == 0 else 1.0
-				foot_target_pos[i] = global_position + horizontal_motion * swing_remaining + step_forward * (landing_lead + 0.05) + step_right * swing_side * STEP_LATERAL
+			var swing_remaining := swing * (1.0 - clampf(foot_step_t[i], 0.0, 1.0))
+			var swing_side := -1.0 if i == 0 else 1.0
+			foot_target_pos[i] = global_position + horizontal_motion * swing_remaining + step_forward * (landing_lead + 0.05) + step_right * swing_side * STEP_LATERAL
 			var t := _smoothstep(foot_step_t[i])
 			var pos := foot_from_pos[i].lerp(foot_target_pos[i], t)
-			var clearance := 0.24 if stair_gait_active else (FOOT_CLEARANCE if not is_running else RUN_FOOT_CLEARANCE)
+			var clearance := FOOT_CLEARANCE if not is_running else RUN_FOOT_CLEARANCE
 			# ROOT CAUSE of the landing "nyedat" (Bagus, 2026-11-09):
 			# the old formula forced pos.y onto the ground arc
 			# (0.05 + sin*clearance), which assumes the foot starts
@@ -667,14 +563,10 @@ func _physics_process(delta: float) -> void:
 				foot_planted_pos[i] = foot_target_pos[i]
 				foot_planted_pos[i].y = _foot_ground_y(foot_planted_pos[i])
 				steps_taken += 1
-				if is_on_stairs:
-					stair_next_foot = 1 - i
 		elif on_floor_now and flight_timer <= 0.0 and (jump_state == 0 or jump_state == 3):
 			var ideal := global_position + step_forward * stride * LAND_BIAS + step_right * side * STEP_LATERAL + step_forward * 0.05
 			ideal.y = _foot_ground_y(ideal)
 			var lag := (ideal - foot_planted_pos[i]).dot(forward) if moving else (ideal - foot_planted_pos[i]).length()
-			var stair_height_error := absf(ideal.y - foot_planted_pos[i].y)
-			var stair_needs_step := stair_gait_active and moving and (lag > 0.06 or stair_height_error > 0.035)
 			var other_stepping := foot_stepping[1 - i]
 			# Alternation, always. Walk: one foot at a time. Run: the
 			# second foot may only toe off once the first is past 75%
@@ -686,22 +578,12 @@ func _physics_process(delta: float) -> void:
 			# During a sharp turn keep a support foot down even at run speed.
 			var turning_sharply := wish_dir.length() > 0.05 and forward.dot(wish_dir.normalized()) < 0.7
 			var gate := (not other_stepping) or (is_running and not turning_sharply and foot_step_t[1 - i] > RUN_GATE)
-			if (stair_gait_active and i == stair_next_foot and stair_needs_step and not other_stepping) or (not is_on_stairs and moving and lag > 0.15 and gate) or (not moving and lag > 0.25 and not other_stepping):
+			if (moving and lag > 0.15 and gate) or (not moving and lag > 0.25 and not other_stepping):
 				# Predict the body position at touchdown and place the foot a
 				# small distance ahead of it. RUN_STRIDE is total step reach,
 				# not a fixed world-space point the body can run past.
-				var target: Vector3
-				if stair_gait_active:
-					# Use the actual travel direction: uphill follows the stair
-					# axis, downhill reverses it. Each foot advances one tread.
-					var stair_forward := Vector3(stair_up_direction.x, 0.0, stair_up_direction.z).normalized()
-					var stair_right := Vector3(stair_forward.z, 0.0, -stair_forward.x)
-					var stair_direction := stair_forward if wish_dir.dot(stair_up_direction) >= 0.0 else -stair_forward
-					target = foot_planted_pos[i] + stair_direction * stair_step_distance * 0.90 + stair_right * side * 0.015
-					target.y = _foot_ground_y(target)
-				else:
-					target = global_position + horizontal_motion * swing + step_forward * (landing_lead + 0.05) + step_right * side * STEP_LATERAL
-					target.y = _foot_ground_y(target)
+				var target := global_position + horizontal_motion * swing + step_forward * (landing_lead + 0.05) + step_right * side * STEP_LATERAL
+				target.y = _foot_ground_y(target)
 				foot_from_pos[i] = foot_planted_pos[i]
 				foot_target_pos[i] = target
 				foot_step_t[i] = 0.0
@@ -857,9 +739,7 @@ func _physics_process(delta: float) -> void:
 	# 0.03 walk / a touch more only when running.
 	# A small forward pitch gives running a clear sense of momentum.
 	# Positive X rotation leans the torso toward the character's +Z forward.
-	var climbing_up := is_on_stairs and wish_dir.dot(stair_up_direction) > 0.0
-	var descending_stairs := is_on_stairs and wish_dir.dot(stair_up_direction) < 0.0
-	var forward_lean := 0.14 if climbing_up else (-0.04 if descending_stairs else (0.025 if not is_running else 0.18))
+	var forward_lean := 0.025 if not is_running else 0.18
 	var is_gliding_fall := not on_floor_now and jump_state != 2
 	# Rotate the torso/head forward into a prone, belly-down wingsuit pose.
 	# Blend into/out of the pose so stepping off an edge does not snap.
@@ -924,16 +804,6 @@ func _physics_process(delta: float) -> void:
 		foot_yaw[i] = lerp_angle(foot_yaw[i], facing_yaw + yaw_diff, clampf(delta * 10.0, 0.0, 1.0))
 		var foot_pitch := 0.0
 		var foot_fwd := Vector3(sin(foot_yaw[i]), 0, cos(foot_yaw[i]))
-		if is_on_stairs and on_floor_now and jump_state == 0:
-			var surface_alignment := _foot_surface_alignment(ankle, foot_fwd)
-			if not foot_stepping[i]:
-				# Keep the planted ankle on the average heel/toe contact height.
-				ankle.y = surface_alignment.x
-				foot_planted_pos[i].y = ankle.y
-			# During swing preserve the animated toe lift; once planted,
-			# rotate the sole to match the tread plane like the reference demo.
-			if not foot_stepping[i]:
-				foot_pitch = -surface_alignment.y
 		if foot_stepping[i]:
 			foot_pitch += sin(PI * clampf(foot_step_t[i], 0.0, 1.0)) * 0.35
 		var foot_pos := ankle + foot_fwd * 0.07
