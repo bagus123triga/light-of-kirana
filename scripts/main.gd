@@ -293,7 +293,7 @@ func _process(delta: float) -> void:
 	# framing target toward the feet, not the camera through/below the floor.
 	var overhead_blend := clampf(inverse_lerp(0.65, CAMERA_MAX_PITCH, cam_pitch), 0.0, 1.0)
 	var target_height := lerpf(1.15, 0.35, overhead_blend)
-	var target := humanoid.global_position + Vector3(0, target_height, 0)
+	var target: Vector3 = humanoid.global_position + Vector3(0, target_height, 0)
 	var horizontal_distance := CAM_DISTANCE * cos(cam_pitch)
 	var camera_height := CAM_DISTANCE * sin(cam_pitch)
 	var offset := Vector3(sin(cam_yaw) * horizontal_distance, camera_height, cos(cam_yaw) * horizontal_distance)
