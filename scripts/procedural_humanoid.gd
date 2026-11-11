@@ -21,8 +21,8 @@ class_name ProceduralHumanoid
 # too fast). Singer's panel says walk 1.75 / run 4.4, but Bagus's
 # order overrides the panel: a real walk is ~1.4 m/s (5 km/h) and a
 # real run ~3.2 m/s, not a sprint.
-const WALK_SPEED := 1.4
-const RUN_SPEED := 4.1
+const WALK_SPEED := 2.0
+const RUN_SPEED := 5.5
 const SWING_TIME := 0.38
 const HIP_STIFFNESS := 260.0
 const HIP_DAMPING := 26.0
@@ -36,8 +36,8 @@ const FOOT_CLEARANCE := 0.17
 # DI DEPAN badan (bukan tepat di bawah), jadi stride target harus jauh
 # (1,65 m dari posisi badan saat trigger) dan swing TIDAK diturunkan dari
 # stride/speed — swing ditentukan siklus langkah, bukan kecepatan.
-const RUN_SWING := 0.40
-const RUN_STRIDE := 1.80
+const RUN_SWING := 0.30
+const RUN_STRIDE := 1.35
 const RUN_GATE := 0.75  # kaki kedua baru boleh toe-off saat kaki pertama 75% ayunannya
 const RUN_FOOT_CLEARANCE := 0.24  # lutut terangkat lebih tinggi saat lari
 # Proportions (Bagus, 2026-11-09): upper thigh LONGER than lower
@@ -480,7 +480,7 @@ func _physics_process(delta: float) -> void:
 	# directions. A scalar speed_smooth alone is insufficient: multiplying
 	# it by wish_dir still makes turning and releasing input instantaneous.
 	var target_horizontal := wish_dir * speed * speed_mult
-	var horizontal_accel := 12.0 if target_horizontal.length() > horizontal_motion.length() else 16.0
+	var horizontal_accel := 16.0 if target_horizontal.length() > horizontal_motion.length() else 20.0
 	horizontal_motion = horizontal_motion.move_toward(target_horizontal, horizontal_accel * delta)
 	if test_mode:
 		position += horizontal_motion * delta
@@ -520,8 +520,8 @@ func _physics_process(delta: float) -> void:
 	# the feet looked too fast even though the speed was right.
 	# The foot lands ~0.4 m AHEAD of the body, so the stride target
 	# must be far (body travel during the swing + 0.4 m ahead).
-	var stride_max := 0.45 if not is_running else RUN_STRIDE
-	var stride_rate := 0.32 if not is_running else 0.58
+	var stride_max := 0.62 if not is_running else RUN_STRIDE
+	var stride_rate := 0.30 if not is_running else 0.24
 	var stride := clampf(speed * stride_rate, 0.14, stride_max)
 	var swing := RUN_SWING if is_running else (clampf(stride / maxf(speed, 0.5), 0.16, SWING_TIME) if moving else SWING_TIME)
 
@@ -701,9 +701,13 @@ func _physics_process(delta: float) -> void:
 	# step: swing time, + flight time when running), NOT to speed.
 	# The old rate (speed/0.55 * PI) hit ~8 steps/s at run speed —
 	# that is why the arms flailed like a cartoon (Bagus, 2026-11-09).
-	if moving and (foot_stepping[0] or foot_stepping[1] or flight_timer > 0.0):
-		var cycle := swing if not is_running else swing * 0.8
-		gait_phase += delta * PI / maxf(cycle, 0.2)
+	if moving and on_floor_now and jump_state == 0:
+		# Drive the visible body/arm cycle from actual travel speed.
+		# This keeps locomotion animation alive even during the planted
+		# part of a step, instead of freezing between foot swings.
+		var step_length := 0.84 if not is_running else 1.35
+		var cadence := speed / step_length
+		gait_phase += delta * cadence * PI
 	var horiz_max := 0.0
 	for i in 2:
 		# ANTICIPATORY ceiling (Bagus, 2026-11-09 — run dragged the
@@ -730,7 +734,8 @@ func _physics_process(delta: float) -> void:
 	# capping the hip 5 cm too low — that 5 cm was exactly the idle
 	# knee bend (0.16 m) that would not go away.
 	var hip_ceiling := 0.05 + sqrt(maxf(leg_len * leg_len - horiz_max * horiz_max, 0.55 * 0.55))
-	var bob := sin(gait_phase * 2.0) * 0.02 * speed_factor if moving else sin(time_alive * 1.6) * 0.012
+	var bob_amount := 0.028 if not is_running else 0.045
+	var bob := sin(gait_phase * 2.0) * bob_amount * speed_factor if moving else sin(time_alive * 1.6) * 0.012
 	var flight_lift := 0.05 if flight_timer > 0.0 else 0.0
 	# Run slack: the hip sits below the ceiling while running, so the
 	# leg is never at its absolute limit at landing/toe-off and the
@@ -751,12 +756,12 @@ func _physics_process(delta: float) -> void:
 	# 0.03 walk / a touch more only when running.
 	# A small forward pitch gives running a clear sense of momentum.
 	# Positive X rotation leans the torso toward the character's +Z forward.
-	var forward_lean := 0.025 if not is_running else 0.18
+	var forward_lean := 0.045 if not is_running else 0.22
 	var is_gliding_fall := not on_floor_now and jump_state != 2
 	# Rotate the torso/head forward into a prone, belly-down wingsuit pose.
 	# Blend into/out of the pose so stepping off an edge does not snap.
 	var normal_body_pitch := speed_factor * forward_lean
-	var fall_body_pitch := 1.30
+	var fall_body_pitch := 0.88
 	var body_pitch_target := lerpf(normal_body_pitch, fall_body_pitch, fall_pose_weight)
 	# Airborne jump: slight forward tuck. Landing: pitch into the impact, then recover.
 	var jump_pose_weight := 1.0 if jump_state == 2 else 0.0
@@ -830,31 +835,31 @@ func _physics_process(delta: float) -> void:
 	# --- Arms, 3 joints: shoulder swings, elbow bends, wrist flicks ---
 	# Arms swing opposite to the same-side leg (Singer's counter-swing).
 	# Walking uses a restrained arm swing; running gets a stronger counter-swing.
-	var arm_swing := 0.30 if not is_running else 0.48
+	var arm_swing := 0.42 if not is_running else 0.66
 	var swing_amount := sin(gait_phase) * arm_swing * speed_factor
 	# Jump arms lift for balance; landing arms reach forward to brace the impact.
-	var jump_arm_x := -0.85
-	var landing_arm_x := -0.65 * landing_impact
+	var jump_arm_x := -1.05
+	var landing_arm_x := -0.95 * landing_impact
 	# Normal locomotion pose and wingsuit pose are blended continuously.
 	# This keeps shoulders, elbows and wrists from popping on edge departure.
 	var wing_flex := sin(time_alive * 2.4) * 0.045
 	var elbow_bend := 0.4 + absf(swing_amount) * 0.3 + jump_crouch * 1.5
-	var left_arm_x := lerpf(swing_amount, -0.12 + wing_flex, fall_pose_weight)
-	var right_arm_x := lerpf(-swing_amount, -0.12 - wing_flex, fall_pose_weight)
+	var left_arm_x := lerpf(swing_amount, -0.78 + wing_flex, fall_pose_weight)
+	var right_arm_x := lerpf(-swing_amount, -0.78 - wing_flex, fall_pose_weight)
 	left_arm_x = lerpf(left_arm_x, jump_arm_x, jump_pose_weight)
 	right_arm_x = lerpf(right_arm_x, jump_arm_x, jump_pose_weight)
 	left_arm_x = lerpf(left_arm_x, landing_arm_x, landing_pose_weight)
 	right_arm_x = lerpf(right_arm_x, landing_arm_x, landing_pose_weight)
 	shoulder_l.rotation.x = left_arm_x
 	shoulder_r.rotation.x = right_arm_x
-	var normal_left_z := lerpf(-0.12, -1.28, fall_pose_weight)
-	var normal_right_z := lerpf(0.12, 1.28, fall_pose_weight)
+	var normal_left_z := lerpf(-0.12, -0.72, fall_pose_weight)
+	var normal_right_z := lerpf(0.12, 0.72, fall_pose_weight)
 	shoulder_l.rotation.z = lerpf(normal_left_z, -0.42, jump_pose_weight)
 	shoulder_r.rotation.z = lerpf(normal_right_z, 0.42, jump_pose_weight)
 	shoulder_l.rotation.z = lerpf(shoulder_l.rotation.z, -0.30 * landing_impact, landing_pose_weight)
 	shoulder_r.rotation.z = lerpf(shoulder_r.rotation.z, 0.30 * landing_impact, landing_pose_weight)
-	var left_elbow := lerpf(-elbow_bend, -0.12, fall_pose_weight)
-	var right_elbow := lerpf(-elbow_bend, -0.12, fall_pose_weight)
+	var left_elbow := lerpf(-elbow_bend, -0.82, fall_pose_weight)
+	var right_elbow := lerpf(-elbow_bend, -0.82, fall_pose_weight)
 	left_elbow = lerpf(left_elbow, -0.55, jump_pose_weight)
 	right_elbow = lerpf(right_elbow, -0.55, jump_pose_weight)
 	left_elbow = lerpf(left_elbow, -1.05 * landing_impact, landing_pose_weight)
