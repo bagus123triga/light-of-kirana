@@ -96,7 +96,7 @@ func _physics_process(delta: float) -> void:
 		_play_animation(JUMP_TAKEOFF, 2.2, 0.08)
 
 	if wish_dir.length() > 0.05:
-		var target_yaw := atan2(wish_dir.x, wish_dir.z) + PI
+		var target_yaw := atan2(wish_dir.x, wish_dir.z)
 		_facing_yaw = rotate_toward(_facing_yaw, target_yaw, 8.0 * delta)
 	rotation.y = _facing_yaw
 
