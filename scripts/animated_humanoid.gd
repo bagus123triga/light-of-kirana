@@ -40,6 +40,11 @@ var _facing_yaw := 0.0
 var _visual: Node3D
 var _animation_player: AnimationPlayer
 
+# Locomotion clips swap only at cycle boundaries to avoid cutting steps short.
+var _pending_locomotion_animation: StringName = &""
+var _target_animation_rate := 1.0
+var _locomotion_stop_time := 0.0
+
 
 func _ready() -> void:
 	floor_snap_length = 0.32
@@ -134,28 +139,82 @@ func _physics_process(delta: float) -> void:
 		_play_animation(JUMP_LAND, 2.0, 0.08)
 
 	if jump_state == JumpState.NONE:
-		_update_locomotion_animation(horizontal.length())
+		_update_locomotion_animation(horizontal.length(), delta)
+		_advance_locomotion_animation(delta)
 
 
-func _update_locomotion_animation(horizontal_speed: float) -> void:
-	if horizontal_speed < 0.12:
-		_play_animation(IDLE, 1.0)
-	elif is_running and horizontal_speed >= 4.3:
-		_play_animation(SPRINT, clampf(horizontal_speed / RUN_SPEED, 0.75, 1.2))
-	elif is_running:
-		_play_animation(JOG, clampf(horizontal_speed / 3.8, 0.7, 1.2))
+func _update_locomotion_animation(horizontal_speed: float, delta: float = 0.016) -> void:
+	var has_input := wish_dir.length_squared() > 0.0025
+	var desired_animation: StringName = IDLE
+	var desired_rate := 1.0
+
+	if has_input:
+		_locomotion_stop_time = 0.0
+		if is_running:
+			# Hysteresis prevents rapid jog/sprint switching near the threshold.
+			if _animation_player.current_animation == SPRINT:
+				desired_animation = SPRINT if horizontal_speed > 3.9 else JOG
+			else:
+				desired_animation = SPRINT if horizontal_speed >= 4.8 else JOG
+			desired_rate = clampf(horizontal_speed / (RUN_SPEED if desired_animation == SPRINT else 3.8), 0.85, 1.15)
+		else:
+			desired_animation = WALK
+			desired_rate = clampf(horizontal_speed / WALK_SPEED, 0.85, 1.15)
 	else:
-		# The walk cycle is authored for a pace close to WALK_SPEED.
-		_play_animation(WALK, clampf(horizontal_speed / WALK_SPEED, 0.75, 1.2))
+		# Continue the current step cycle while braking; idle starts only
+		# after the body has stopped for a brief stable interval.
+		if horizontal_speed > 0.10:
+			_locomotion_stop_time = 0.0
+			desired_animation = _animation_player.current_animation
+			if desired_animation == &"" or desired_animation == IDLE:
+				desired_animation = WALK
+		else:
+			_locomotion_stop_time += delta
+			desired_animation = IDLE if _locomotion_stop_time >= 0.12 else _animation_player.current_animation
+			if desired_animation == &"":
+				desired_animation = IDLE
+
+	_target_animation_rate = desired_rate
+	if desired_animation != _animation_player.current_animation:
+		_pending_locomotion_animation = desired_animation
+	elif _pending_locomotion_animation != &"":
+		_pending_locomotion_animation = &""
+
+
+func _advance_locomotion_animation(delta: float) -> void:
+	if _animation_player == null:
+		return
+
+	# Smooth playback-rate changes instead of changing speed_scale abruptly.
+	_animation_player.speed_scale = move_toward(_animation_player.speed_scale, _target_animation_rate, 2.5 * delta)
+	if _pending_locomotion_animation == &"":
+		return
+
+	var current_name := _animation_player.current_animation
+	if current_name == &"" or not _animation_player.is_playing():
+		var next_name := _pending_locomotion_animation
+		_pending_locomotion_animation = &""
+		_play_animation(next_name, _target_animation_rate, 0.16)
+		return
+
+	var current_clip: Animation = _animation_player.get_animation(current_name)
+	if current_clip == null or current_clip.length <= 0.0:
+		return
+	var remaining := current_clip.length - _animation_player.current_animation_position
+	if remaining <= maxf(delta * _animation_player.speed_scale, 0.035):
+		var next_name := _pending_locomotion_animation
+		_pending_locomotion_animation = &""
+		_play_animation(next_name, _target_animation_rate, 0.16)
 
 
 func _play_animation(animation_name: StringName, playback_rate: float = 1.0, blend: float = 0.18) -> void:
 	if _animation_player == null or not _animation_player.has_animation(animation_name):
 		return
-	if _animation_player.current_animation == animation_name and _animation_player.is_playing():
-		_animation_player.speed_scale = playback_rate
-		return
+	_pending_locomotion_animation = &""
+	_target_animation_rate = playback_rate
 	_animation_player.speed_scale = playback_rate
+	if _animation_player.current_animation == animation_name and _animation_player.is_playing():
+		return
 	_animation_player.play(animation_name, blend)
 
 
@@ -169,4 +228,6 @@ func _on_animation_finished(animation_name: StringName) -> void:
 			_play_animation(JUMP_AIR, 1.0, 0.12)
 	elif animation_name == JUMP_LAND and jump_state == JumpState.LANDING:
 		jump_state = JumpState.NONE
-		_update_locomotion_animation(Vector2(velocity.x, velocity.z).length())
+		_locomotion_stop_time = 0.0
+		_update_locomotion_animation(Vector2(velocity.x, velocity.z).length(), 0.016)
+		_advance_locomotion_animation(0.016)
