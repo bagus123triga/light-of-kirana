@@ -318,11 +318,22 @@ func set_stair_state(active: bool, up_direction: Vector3 = Vector3.UP, step_dept
 		stair_next_foot = 0
 
 
-func _foot_ground_y(point: Vector3) -> float:
+func _ground_hit(point: Vector3, collision_mask: int) -> Dictionary:
 	var query := PhysicsRayQueryParameters3D.create(point + Vector3.UP * 2.0, point + Vector3.DOWN * 3.0)
 	query.exclude = [get_rid()]
-	query.collision_mask = 3
-	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	query.collision_mask = collision_mask
+	return get_world_3d().direct_space_state.intersect_ray(query)
+
+
+func _foot_ground_y(point: Vector3) -> float:
+	# The invisible ramp is collision layer 1; real tread tops are layer 2.
+	# Prefer the tread so each foot can stand on its own step while the
+	# CharacterBody3D continues to ride the smooth ramp.
+	var hit: Dictionary = {}
+	if is_on_stairs:
+		hit = _ground_hit(point, 2)
+	if hit.is_empty():
+		hit = _ground_hit(point, 1 if is_on_stairs else 3)
 	return float(hit.position.y) + 0.05 if not hit.is_empty() else global_position.y + 0.05
 
 
@@ -336,15 +347,17 @@ func _foot_surface_alignment(point: Vector3, foot_forward: Vector3) -> Vector2:
 	var half_length := 0.075
 	var heel_point := point - forward_axis * half_length
 	var toe_point := point + forward_axis * half_length
-	var heel_query := PhysicsRayQueryParameters3D.create(heel_point + Vector3.UP * 2.0, heel_point + Vector3.DOWN * 3.0)
-	var toe_query := PhysicsRayQueryParameters3D.create(toe_point + Vector3.UP * 2.0, toe_point + Vector3.DOWN * 3.0)
-	heel_query.exclude = [get_rid()]
-	toe_query.exclude = [get_rid()]
-	heel_query.collision_mask = 3
-	toe_query.collision_mask = 3
-	var space := get_world_3d().direct_space_state
-	var heel_hit := space.intersect_ray(heel_query)
-	var toe_hit := space.intersect_ray(toe_query)
+	# Query actual tread tops first; only use the invisible ramp or ground
+	# when a heel/toe is outside the visible staircase geometry.
+	var heel_hit: Dictionary = {}
+	var toe_hit: Dictionary = {}
+	if is_on_stairs:
+		heel_hit = _ground_hit(heel_point, 2)
+		toe_hit = _ground_hit(toe_point, 2)
+	if heel_hit.is_empty():
+		heel_hit = _ground_hit(heel_point, 1 if is_on_stairs else 3)
+	if toe_hit.is_empty():
+		toe_hit = _ground_hit(toe_point, 1 if is_on_stairs else 3)
 	if heel_hit.is_empty() and toe_hit.is_empty():
 		return Vector2(point.y, 0.0)
 	var heel_y := float(heel_hit.position.y) if not heel_hit.is_empty() else float(toe_hit.position.y)
@@ -735,6 +748,11 @@ func _physics_process(delta: float) -> void:
 		for i in 2:
 			var idle_side := -1.0 if i == 0 else 1.0
 			var idle_foot := global_position + right * idle_side * STEP_LATERAL + forward * 0.05
+			if is_on_stairs:
+				# Keep a small fore/aft stagger at idle. Near a riser this lets
+				# the left and right feet settle on adjacent treads naturally.
+				var stair_forward := Vector3(stair_up_direction.x, 0.0, stair_up_direction.z).normalized()
+				idle_foot += stair_forward * (0.10 if i == 0 else -0.10)
 			idle_foot.y = _foot_ground_y(idle_foot)
 			foot_planted_pos[i] = foot_planted_pos[i].move_toward(idle_foot, delta * 2.5)
 			foot_target_pos[i] = idle_foot
@@ -810,32 +828,23 @@ func _physics_process(delta: float) -> void:
 	if moving and (foot_stepping[0] or foot_stepping[1] or flight_timer > 0.0):
 		var cycle := swing if not is_running else swing * 0.8
 		gait_phase += delta * PI / maxf(cycle, 0.2)
-	var horiz_max := 0.0
+	var leg_len := LEG_UPPER + LEG_LOWER
+	# Solve the hip ceiling independently for each ankle. Unlike flat ground,
+	# two feet on different stair treads have different vertical offsets.
+	# The lowest reachable ceiling wins, so the pelvis lowers just enough
+	# for both knees/ankles to remain inside the two-bone IK reach.
+	var hip_ceiling := INF
 	for i in 2:
-		# ANTICIPATORY ceiling (Bagus, 2026-11-09 — run dragged the
-		# feet, 92 clamps): a stepping foot counts by where it WILL
-		# land relative to the body at landing (target minus the body
-		# travel left in the swing), not where it is now. The old
-		# ceiling only saw planted feet, so it dropped suddenly the
-		# frame a foot landed 0.27 m ahead and the spring lagged
-		# behind it, clamping the ankle on nearly every run frame.
-		# The hip now pre-dips during the swing and is already low
-		# enough when the foot touches down.
-		var p: Vector3
+		var foot_at_land := foot_target_pos[i] if foot_stepping[i] else foot_planted_pos[i]
+		var body_at_land := global_position
 		if foot_stepping[i]:
 			var remain := swing * (1.0 - foot_step_t[i])
-			var body_at_land := global_position + horizontal_motion * remain
-			p = foot_target_pos[i] - body_at_land
-		else:
-			p = foot_planted_pos[i] - global_position
-		p.y = 0.0
-		horiz_max = maxf(horiz_max, p.length())
-	var leg_len := LEG_UPPER + LEG_LOWER
-	# Ceiling is ankle height (0.05) + the vertical reach left over
-	# after the horizontal offset. The old formula forgot the +0.05,
-	# capping the hip 5 cm too low — that 5 cm was exactly the idle
-	# knee bend (0.16 m) that would not go away.
-	var hip_ceiling := 0.05 + sqrt(maxf(leg_len * leg_len - horiz_max * horiz_max, 0.55 * 0.55))
+			body_at_land += horizontal_motion * remain
+		var relative_ankle := foot_at_land - body_at_land
+		var horizontal_sq := relative_ankle.x * relative_ankle.x + relative_ankle.z * relative_ankle.z
+		var vertical_reach := sqrt(maxf(leg_len * leg_len - horizontal_sq, 0.0))
+		var foot_ceiling := relative_ankle.y + vertical_reach
+		hip_ceiling = minf(hip_ceiling, foot_ceiling)
 	var bob := sin(gait_phase * 2.0) * 0.02 * speed_factor if moving else sin(time_alive * 1.6) * 0.012
 	var flight_lift := 0.05 if flight_timer > 0.0 else 0.0
 	# Run slack: the hip sits below the ceiling while running, so the
@@ -887,15 +896,31 @@ func _physics_process(delta: float) -> void:
 			foot_planted_pos[i].y = 0.05 + minf(maxf(behind - 0.08, 0.0) * 0.42, 0.17)
 
 	# --- Two-bone IK + foot placement ---
-	# Visual ankle is clamped to leg reach so the shin can never detach
-	# from the foot, even at the far end of a stride (Singer's pendulum
-	# body does this by dipping the hip; the clamp is the safety net).
-	# The clamp counter is a test signal: if it fires often while
-	# running, the feet are being dragged (ngesot).
+	# Sample each tread BEFORE solving the leg. This keeps the ankle, shin,
+	# knee and sole on the same target instead of moving only the foot mesh
+	# after the IK chain has already been solved.
 	for i in 2:
 		var side := -1.0 if i == 0 else 1.0
-		var hip_joint := hip_global + right * side * 0.09
+		var step_dir := foot_target_pos[i] - foot_from_pos[i]
+		var want_yaw := facing_yaw
+		if foot_stepping[i] and step_dir.length() > 0.01:
+			want_yaw = atan2(step_dir.x, step_dir.z)
+		var yaw_diff := clampf(wrapf(want_yaw - facing_yaw, -PI, PI), deg_to_rad(-45.0), deg_to_rad(45.0))
+		foot_yaw[i] = lerp_angle(foot_yaw[i], facing_yaw + yaw_diff, clampf(delta * 10.0, 0.0, 1.0))
+
 		var ankle := foot_planted_pos[i]
+		var foot_pitch := 0.0
+		var foot_fwd := Vector3(sin(foot_yaw[i]), 0.0, cos(foot_yaw[i]))
+		if is_on_stairs and on_floor_now and jump_state == 0:
+			var surface_alignment := _foot_surface_alignment(ankle, foot_fwd)
+			if not foot_stepping[i]:
+				ankle.y = surface_alignment.x
+				foot_planted_pos[i].y = ankle.y
+				foot_pitch = -surface_alignment.y
+		if foot_stepping[i]:
+			foot_pitch += sin(PI * clampf(foot_step_t[i], 0.0, 1.0)) * 0.35
+
+		var hip_joint := hip_global + right * side * 0.09
 		var to_ankle := ankle - hip_joint
 		if to_ankle.length() > LEG_UPPER + LEG_LOWER - 0.01:
 			ankle = hip_joint + to_ankle.normalized() * (LEG_UPPER + LEG_LOWER - 0.01)
@@ -904,38 +929,7 @@ func _physics_process(delta: float) -> void:
 		knee_pos[i] = knee
 		_place_limb(thigh_mesh[i], hip_joint, knee)
 		_place_limb(shin_mesh[i], knee, ankle)
-		# Foot orientation (Bagus, 2026-11-09): the sole must FOLLOW
-		# the movement direction. The old code set the foot's LOCAL
-		# rotation.y = facing_yaw on top of the body's own facing_yaw
-		# — the yaw was doubled, so when turning left/right the feet
-		# pointed backwards / tilted. Now the foot is placed by its
-		# GLOBAL transform: yaw tracks the step direction while
-		# stepping, the facing while planted; pitch lets the toe drop
-		# mid-swing (foot dangles) and is flat (0) when planted.
-		var step_dir := foot_target_pos[i] - foot_from_pos[i]
-		var want_yaw := facing_yaw
-		if foot_stepping[i] and step_dir.length() > 0.01:
-			want_yaw = atan2(step_dir.x, step_dir.z)
-		# Foot yaw is CLAMPED to +-45 degrees from the body facing
-		# (Bagus, 2026-11-09). A human foot cannot spin all the way
-		# round — the old code let it follow the step direction
-		# without limit, so on sharp turns the sole rotated fully.
-		var yaw_diff := clampf(wrapf(want_yaw - facing_yaw, -PI, PI), deg_to_rad(-45.0), deg_to_rad(45.0))
-		foot_yaw[i] = lerp_angle(foot_yaw[i], facing_yaw + yaw_diff, clampf(delta * 10.0, 0.0, 1.0))
-		var foot_pitch := 0.0
-		var foot_fwd := Vector3(sin(foot_yaw[i]), 0, cos(foot_yaw[i]))
-		if is_on_stairs and on_floor_now and jump_state == 0:
-			var surface_alignment := _foot_surface_alignment(ankle, foot_fwd)
-			if not foot_stepping[i]:
-				# Keep the planted ankle on the average heel/toe contact height.
-				ankle.y = surface_alignment.x
-				foot_planted_pos[i].y = ankle.y
-			# During swing preserve the animated toe lift; once planted,
-			# rotate the sole to match the tread plane like the reference demo.
-			if not foot_stepping[i]:
-				foot_pitch = -surface_alignment.y
-		if foot_stepping[i]:
-			foot_pitch += sin(PI * clampf(foot_step_t[i], 0.0, 1.0)) * 0.35
+
 		var foot_pos := ankle + foot_fwd * 0.07
 		foot_pos.y = ankle.y
 		foot_mesh[i].global_transform = Transform3D(Basis.from_euler(Vector3(foot_pitch, foot_yaw[i], 0.0)), foot_pos)
