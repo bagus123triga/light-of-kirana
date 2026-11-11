@@ -113,6 +113,10 @@ var land_t := 0.0
 var jump_state := 0
 var jump_timer := 0.0
 var jump_crouch := 0.0
+# Impact-driven landing animation: track the strongest downward speed during flight.
+var max_fall_speed := 0.0
+var landing_impact := 0.0
+var landing_duration := 0.22
 var run_jump_phase := 0.0
 var jump_from_run := false
 var run_jump_lead_foot := 0
@@ -385,6 +389,8 @@ func _physics_process(delta: float) -> void:
 		if jump_state == 0 and (test_mode or is_on_floor()):
 			jump_state = 1
 			jump_timer = 0.16
+			max_fall_speed = 0.0
+			landing_impact = 0.0
 			jump_from_run = is_running
 			run_jump_phase = 0.0
 			if jump_from_run:
@@ -410,6 +416,7 @@ func _physics_process(delta: float) -> void:
 			if not test_mode:
 				velocity.y = 6.5
 	elif jump_state == 2:
+		max_fall_speed = maxf(max_fall_speed, maxf(-velocity.y, 0.0))
 		if jump_from_run:
 			run_jump_phase += delta * 8.0
 		# ROOT CAUSE (screenshot 2026-11-09 21:43, reproduced headless):
@@ -424,8 +431,12 @@ func _physics_process(delta: float) -> void:
 		# the landing signal; the launch frame is safe because the
 		# if/elif chain skips this branch on the frame state becomes 2.
 		if not test_mode and is_on_floor():
+			# Convert fall speed into a readable action-game impact.
+			# A short hop gets a light recovery; a drop from the stairs gets a deep brace.
+			landing_impact = clampf(inverse_lerp(4.5, 10.5, max_fall_speed), 0.0, 1.0)
+			landing_duration = lerpf(0.22, 0.42, landing_impact)
 			jump_state = 3
-			jump_timer = 0.18
+			jump_timer = landing_duration
 			# Plant both feet on the ground under the body, LEADING
 			# slightly in the direction of travel (wish_dir * 0.25):
 			# the body keeps moving through the 0.18 s landing
@@ -454,7 +465,8 @@ func _physics_process(delta: float) -> void:
 		jump_timer -= delta
 		if jump_timer <= 0.0:
 			jump_state = 0
-	var crouch_target := 0.22 if jump_state == 1 else (0.07 if jump_state == 3 else 0.0)
+	var landing_crouch := lerpf(0.07, 0.25, landing_impact)
+	var crouch_target := 0.22 if jump_state == 1 else (landing_crouch if jump_state == 3 else 0.0)
 	jump_crouch = move_toward(jump_crouch, crouch_target, delta * (2.0 if jump_state == 1 else (2.2 if jump_state == 3 else 0.9)))
 
 	# Brake while pressing down and while absorbing the landing: the
@@ -746,6 +758,11 @@ func _physics_process(delta: float) -> void:
 	var normal_body_pitch := speed_factor * forward_lean
 	var fall_body_pitch := 1.30
 	var body_pitch_target := lerpf(normal_body_pitch, fall_body_pitch, fall_pose_weight)
+	# Airborne jump: slight forward tuck. Landing: pitch into the impact, then recover.
+	var jump_pose_weight := 1.0 if jump_state == 2 else 0.0
+	var landing_pose_weight := _smoothstep(clampf(jump_timer / maxf(landing_duration, 0.01), 0.0, 1.0)) if jump_state == 3 else 0.0
+	body_pitch_target = lerpf(body_pitch_target, 0.16, jump_pose_weight)
+	body_pitch_target = lerpf(body_pitch_target, 0.28 * landing_impact, landing_pose_weight)
 	body_root.rotation.x = body_pitch_target
 	var normal_body_roll := sin(gait_phase) * 0.02 * speed_factor
 	var fall_body_roll := sin(time_alive * 2.2) * 0.035
@@ -815,15 +832,36 @@ func _physics_process(delta: float) -> void:
 	# Walking uses a restrained arm swing; running gets a stronger counter-swing.
 	var arm_swing := 0.30 if not is_running else 0.48
 	var swing_amount := sin(gait_phase) * arm_swing * speed_factor
+	# Jump arms lift for balance; landing arms reach forward to brace the impact.
+	var jump_arm_x := -0.85
+	var landing_arm_x := -0.65 * landing_impact
 	# Normal locomotion pose and wingsuit pose are blended continuously.
 	# This keeps shoulders, elbows and wrists from popping on edge departure.
 	var wing_flex := sin(time_alive * 2.4) * 0.045
 	var elbow_bend := 0.4 + absf(swing_amount) * 0.3 + jump_crouch * 1.5
-	shoulder_l.rotation.x = lerpf(swing_amount, -0.12 + wing_flex, fall_pose_weight)
-	shoulder_r.rotation.x = lerpf(-swing_amount, -0.12 - wing_flex, fall_pose_weight)
-	shoulder_l.rotation.z = lerpf(-0.12, -1.28, fall_pose_weight)
-	shoulder_r.rotation.z = lerpf(0.12, 1.28, fall_pose_weight)
-	elbow_l.rotation.x = lerpf(-elbow_bend, -0.12, fall_pose_weight)
-	elbow_r.rotation.x = lerpf(-elbow_bend, -0.12, fall_pose_weight)
+	var left_arm_x := lerpf(swing_amount, -0.12 + wing_flex, fall_pose_weight)
+	var right_arm_x := lerpf(-swing_amount, -0.12 - wing_flex, fall_pose_weight)
+	left_arm_x = lerpf(left_arm_x, jump_arm_x, jump_pose_weight)
+	right_arm_x = lerpf(right_arm_x, jump_arm_x, jump_pose_weight)
+	left_arm_x = lerpf(left_arm_x, landing_arm_x, landing_pose_weight)
+	right_arm_x = lerpf(right_arm_x, landing_arm_x, landing_pose_weight)
+	shoulder_l.rotation.x = left_arm_x
+	shoulder_r.rotation.x = right_arm_x
+	var normal_left_z := lerpf(-0.12, -1.28, fall_pose_weight)
+	var normal_right_z := lerpf(0.12, 1.28, fall_pose_weight)
+	shoulder_l.rotation.z = lerpf(normal_left_z, -0.42, jump_pose_weight)
+	shoulder_r.rotation.z = lerpf(normal_right_z, 0.42, jump_pose_weight)
+	shoulder_l.rotation.z = lerpf(shoulder_l.rotation.z, -0.30 * landing_impact, landing_pose_weight)
+	shoulder_r.rotation.z = lerpf(shoulder_r.rotation.z, 0.30 * landing_impact, landing_pose_weight)
+	var left_elbow := lerpf(-elbow_bend, -0.12, fall_pose_weight)
+	var right_elbow := lerpf(-elbow_bend, -0.12, fall_pose_weight)
+	left_elbow = lerpf(left_elbow, -0.55, jump_pose_weight)
+	right_elbow = lerpf(right_elbow, -0.55, jump_pose_weight)
+	left_elbow = lerpf(left_elbow, -1.05 * landing_impact, landing_pose_weight)
+	right_elbow = lerpf(right_elbow, -1.05 * landing_impact, landing_pose_weight)
+	elbow_l.rotation.x = left_elbow
+	elbow_r.rotation.x = right_elbow
 	wrist_l.rotation.x = lerpf(elbow_bend * 0.5, 0.08, fall_pose_weight)
 	wrist_r.rotation.x = lerpf(elbow_bend * 0.5, 0.08, fall_pose_weight)
+	wrist_l.rotation.x = lerpf(wrist_l.rotation.x, -0.25, landing_pose_weight)
+	wrist_r.rotation.x = lerpf(wrist_r.rotation.x, -0.25, landing_pose_weight)
