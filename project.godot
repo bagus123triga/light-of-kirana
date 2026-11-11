@@ -10,7 +10,7 @@ config_version=5
 [application]
 
 config/name="Light of Kirana"
-config/description="Light of Kirana — procedural walking experiment. Flat grey world, daylight, orange humanoid walking with step planner, spring-damped body and two-bone IK (Singer reference, no animation clips)."
+config/description="Light of Kirana — third-person movement prototype with a rigged humanoid and CC0 animation clips."
 config/icon="res://assets/icon.svg"
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.4", "GL Compatibility")

@@ -1,43 +1,49 @@
-# Light of Kirana — Procedural Walking Experiment
+# Light of Kirana
 
-Procedural humanoid walking in Godot 4.4, no animation clips, no mocap.
+Godot 4.4 third-person movement prototype using a rigged Quaternius humanoid
+and CC0 motion clips exported by KinemIQ.
 
-Reference: **Procedural Humanoid Locomotion — Benjamin J Singer**
-https://procedural-humanoid.benjaminjsinger.com/
+## Character and animation
 
-Architecture (followed from the reference):
-1. **Step planner** — stance target projected from velocity, land bias 0.47
-2. **Spring-damped body** — hip stiffness 260 / damping 26
-3. **Two-bone IK** — analytic, knee bends forward, feet stay planted
+The player model is `assets/characters/light_of_kirana_animated.glb`. It contains
+the rigged Quaternius Standard male model and seven animation clips:
 
-Numbers from the reference tuning panel: walk 1.75 m/s, run 4.4 m/s,
-swing 0.38 s, foot clearance 0.17 m.
+- `Idle_relaxed`
+- `Walk_forwards`
+- `Run_jog_forwards`
+- `Run_sprint`
+- `Jump_take_off`
+- `Jump_in_the_air`
+- `Jump_landing`
 
-## Look
+Walk/run/sprint clips are in-place so the `CharacterBody3D` controller owns
+world movement and collision. The controller scales animation cadence against
+movement speed to reduce foot sliding.
 
-- World: flat grey map only (100 x 100 m plane), daylight sun + pale grey sky
-- Humanoid: orange, built from primitives, all joints solved in code each frame
-- Idle is a powered ragdoll (spring holds the body upright + breathing sway),
-  not a limp collapse — like Zelda / Genshin idle
+See `assets/characters/THIRD_PARTY_LICENSES.txt` for asset sources and CC0 terms.
 
 ## Controls
 
-- Desktop: WASD / arrows to walk, Shift to run, Space to jump, drag mouse to orbit camera
-- Touch: left virtual joystick to walk, LARI button to run, LOMPAT button to jump,
-  drag anywhere else to orbit camera
+- Desktop: WASD / arrow keys, Shift to run, Space to jump, drag mouse to orbit
+- Android: virtual joystick, LARI and LOMPAT buttons, drag elsewhere to orbit
 
-## Build (manual only)
+## Movement targets
 
-GitHub Actions workflow `.github/workflows/android-build.yml` is
-`workflow_dispatch` only — it never runs on push. To build, open
-Actions > Android Build (Manual Only) > Run workflow, type `BUILD`,
-download the debug APK from the run.
+- Walk: 2.0 m/s
+- Run: 5.5 m/s
+- Jump uses physics gravity and a one-shot take-off / airborne / landing animation sequence.
 
-## Test (headless, local only)
+## Test
 
 ```sh
 godot --headless --editor --path . --import --quit
-godot --headless --path . --script res://tests/test_procedural_walk.gd
+godot --headless --path . --script res://tests/test_animated_character.gd
 ```
 
-A passing `WALK_TEST PASS` is a local check only — the tablet test is the verdict.
+A passing headless test confirms the GLB imports and all seven named clips exist.
+It does not replace a visual test on the target Android device.
+
+## Android build
+
+The workflow `.github/workflows/android-build.yml` remains manual-only.
+No GitHub Actions workflow is triggered by this patch.

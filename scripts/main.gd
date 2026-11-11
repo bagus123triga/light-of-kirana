@@ -1,11 +1,13 @@
 extends Node3D
 
+const AnimatedHumanoidScript := preload("res://scripts/animated_humanoid.gd")
+
 ## Light of Kirana — procedural walking experiment.
 ## World: flat grey map only, daylight, orange humanoid (Singer reference).
 ## Controls: WASD / arrows + Shift run + Space jump (desktop),
 ## virtual joystick + RUN / JUMP buttons (touch), drag anywhere else to orbit camera.
 
-var humanoid: ProceduralHumanoid
+var humanoid
 var camera: Camera3D
 var joystick: KiranaVirtualJoystick
 var run_button: KiranaTouchButton
@@ -148,7 +150,7 @@ func _build_stairs() -> void:
 
 
 func _build_humanoid() -> void:
-	humanoid = ProceduralHumanoid.new()
+	humanoid = AnimatedHumanoidScript.new()
 	humanoid.name = "Humanoid"
 	humanoid.position = Vector3(0, 0, 0)
 	add_child(humanoid)
@@ -172,7 +174,7 @@ func _build_ui() -> void:
 	add_child(layer)
 
 	var hint := Label.new()
-	hint.text = "Light of Kirana — procedural walk (Singer)  |  WASD jalan, Shift lari, Space lompat"
+	hint.text = "Light of Kirana — animated humanoid  |  WASD jalan, Shift lari, Space lompat"
 	hint.position = Vector2(16, 12)
 	hint.add_theme_color_override("font_color", Color(0.25, 0.25, 0.25))
 	layer.add_child(hint)
@@ -269,7 +271,7 @@ func _process(delta: float) -> void:
 
 	run_button.visible = true
 	var running := run_held or Input.is_key_pressed(KEY_SHIFT)
-	if Input.is_key_pressed(KEY_SPACE):
+	if Input.is_key_just_pressed(KEY_SPACE):
 		humanoid.want_jump = true
 
 	# Camera-relative wish direction. Camera looks -Z from behind the pivot.

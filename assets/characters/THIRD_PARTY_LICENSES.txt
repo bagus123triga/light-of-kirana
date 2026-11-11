@@ -1,0 +1,23 @@
+Light of Kirana — third-party character and animation assets
+
+Character model:
+- Quaternius, Universal Base Characters — Standard male GLB
+- Source: https://quaternius.com/
+- Original source package license: CC0 1.0 Universal
+- Commercial use, modification, and redistribution permitted.
+
+Animation clips:
+- Quaternius Universal Animation Library, retargeted and exported by KinemIQ
+- Source: https://kinemiq.app/free-game-animations/
+- Pack: KinemIQ Free Animation Pack (CC0)
+- License: CC0 1.0 Universal
+- Commercial use, modification, and redistribution permitted; attribution is appreciated but not required.
+
+Included clips:
+Idle_relaxed, Walk_forwards, Run_jog_forwards, Run_sprint,
+Jump_take_off, Jump_in_the_air, Jump_landing.
+
+The locomotion root-motion component was stripped from the walk/run/sprint
+pelvis translation tracks so CharacterBody3D controls movement without
+double-applying forward motion. The remaining animation data is preserved.
+CC0: https://creativecommons.org/publicdomain/zero/1.0/
