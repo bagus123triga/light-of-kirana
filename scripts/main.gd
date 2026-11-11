@@ -230,6 +230,11 @@ func _is_over_camera_blocker(screen_pos: Vector2) -> bool:
 
 
 func _input(event: InputEvent) -> void:
+	if event is InputEventKey:
+		var key_event := event as InputEventKey
+		if key_event.keycode == KEY_SPACE and key_event.pressed and not key_event.echo:
+			humanoid.want_jump = true
+
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
 			_orbit_mouse = not _is_over_camera_blocker(event.position)
@@ -271,8 +276,6 @@ func _process(delta: float) -> void:
 
 	run_button.visible = true
 	var running := run_held or Input.is_key_pressed(KEY_SHIFT)
-	if Input.is_key_just_pressed(KEY_SPACE):
-		humanoid.want_jump = true
 
 	# Camera-relative wish direction. Camera looks -Z from behind the pivot.
 	var fwd := Vector3(-sin(cam_yaw), 0, -cos(cam_yaw))
